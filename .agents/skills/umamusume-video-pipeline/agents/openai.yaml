@@ -1,0 +1,4 @@
+interface:
+  display_name: "Umamusume Video Pipeline"
+  short_description: "Run the local draft-to-Remotion video pipeline."
+  default_prompt: "Use this skill to turn a draft into structured script, TTS audio, director-generated images, timeline, and a Remotion render."
