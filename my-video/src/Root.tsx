@@ -10,17 +10,21 @@ export const RemotionRoot: React.FC = () => {
     .filter((file) => file.name.endsWith("timeline.json"))
     .map((file) => file.name.split("/")[1]);
 
+  const toCompositionId = (storyName: string) =>
+    storyName.replace(/[^a-zA-Z0-9\u4e00-\u9fff-]/g, "-");
+
   return (
     <>
       {timelines.map((storyName) => (
         <Composition
-          id={storyName}
+          id={toCompositionId(storyName)}
           component={AIVideo}
           fps={FPS}
           width={1920}
           height={1080}
           schema={aiVideoSchema}
           defaultProps={{
+            contentProject: storyName,
             timeline: null,
           }}
           calculateMetadata={async ({ props }) => {

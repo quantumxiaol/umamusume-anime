@@ -40,6 +40,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--qwen3tts-url", default=DEFAULT_QWEN3TTS_URL, help="Qwen3-TTS service URL.")
     parser.add_argument("--timeout", type=float, default=300.0, help="HTTP timeout in seconds.")
     parser.add_argument("--language", default="Japanese", help="Qwen3-TTS language value.")
+    parser.add_argument(
+        "--speaker-id",
+        action="append",
+        help="Only synthesize lines for this speakerId. Can be passed more than once.",
+    )
     parser.add_argument("--overwrite", action="store_true", help="Regenerate existing audio files.")
     parser.add_argument("--max-new-tokens", type=int)
     parser.add_argument("--do-sample", action="store_true")
@@ -58,6 +63,9 @@ def synthesize_script(args: argparse.Namespace) -> None:
     script = read_json(script_path)
     lines = flatten_lines(script)
     targets = [line for line in lines if line.get("audio")]
+    if args.speaker_id:
+        speaker_ids = set(args.speaker_id)
+        targets = [line for line in targets if str(line.get("speakerId") or "") in speaker_ids]
     if not targets:
         print("no audio targets found")
         return
@@ -97,7 +105,7 @@ def synthesize_line(
 
     output_path = Path(str(line["audio"])).expanduser()
     if output_path.exists() and not args.overwrite:
-        print(f"[{index}/{total}] skip existing {line_id}: {output_path}")
+        print(f"[{index}/{total}] skip existing {line_id}: {output_path}", flush=True)
         return
 
     character_dir = resolve_character_dir(characters_root=characters_root, speaker_id=speaker_id)
@@ -117,7 +125,7 @@ def synthesize_line(
     if not normalized_reference.exists():
         transcode_to_wav(reference_audio, normalized_reference)
 
-    print(f"[{index}/{total}] {line_id} speaker={speaker_id}")
+    print(f"[{index}/{total}] {line_id} speaker={speaker_id}", flush=True)
     payload = client.voice_clone(
         ref_audio_path=normalized_reference,
         text=text,
