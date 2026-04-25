@@ -17,8 +17,8 @@ export const RemotionRoot: React.FC = () => {
           id={storyName}
           component={AIVideo}
           fps={FPS}
-          width={1080}
-          height={1920}
+          width={1920}
+          height={1080}
           schema={aiVideoSchema}
           defaultProps={{
             timeline: null,
@@ -30,6 +30,8 @@ export const RemotionRoot: React.FC = () => {
 
             return {
               durationInFrames: lengthFrames + INTRO_DURATION,
+              width: timeline.width ?? 1920,
+              height: timeline.height ?? 1080,
               props: {
                 ...props,
                 timeline,

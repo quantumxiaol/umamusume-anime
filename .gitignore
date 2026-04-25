@@ -5,10 +5,15 @@ build/
 dist/
 wheels/
 *.egg-info
-
+.DS_Store
 # Virtual environments
 .venv
 
 test_data/
 
 draft/
+examples/
+characters/
+backgrounds/
+my-video/public/content/
+

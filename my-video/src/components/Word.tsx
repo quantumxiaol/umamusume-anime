@@ -10,16 +10,24 @@ export const Word: React.FC<{
   stroke: boolean;
 }> = ({ enterProgress, text, stroke }) => {
   const { fontFamily } = loadFont();
-  const { width } = useVideoConfig();
-  const desiredFontSize = 120;
+  const { width, height } = useVideoConfig();
+  const lines = text.split("\n").filter((line) => line.trim().length > 0);
+  const desiredFontSize = height * 0.09;
+  const maxTextWidth = width * 0.9;
 
-  const fittedText = fitText({
-    fontFamily,
-    text,
-    withinWidth: width * 0.8,
-  });
+  const fittedFontSize = Math.min(
+    ...lines.map(
+      (line) =>
+        fitText({
+          fontFamily,
+          text: line,
+          withinWidth: maxTextWidth,
+        }).fontSize,
+    ),
+  );
 
-  const fontSize = Math.min(desiredFontSize, fittedText.fontSize);
+  const fontSize = Math.min(desiredFontSize, fittedFontSize);
+  const strokeWidth = Math.max(8, Math.round(fontSize * 0.14));
 
   return (
     <AbsoluteFill
@@ -27,25 +35,28 @@ export const Word: React.FC<{
         justifyContent: "center",
         alignItems: "center",
         top: undefined,
-        bottom: 350,
-        height: 150,
+        bottom: height * 0.08,
+        height: height * 0.23,
       }}
     >
       <div
         style={{
           fontSize,
           color: "white",
-          WebkitTextStroke: stroke ? "20px black" : undefined,
+          WebkitTextStroke: stroke ? `${strokeWidth}px black` : undefined,
           transform: makeTransform([
             scale(interpolate(enterProgress, [0, 1], [0.8, 1])),
-            translateY(interpolate(enterProgress, [0, 1], [50, 0])),
+            translateY(interpolate(enterProgress, [0, 1], [height * 0.04, 0])),
           ]),
           fontFamily,
-          textTransform: "uppercase",
           textAlign: "center",
+          lineHeight: 1.18,
+          maxWidth: maxTextWidth,
         }}
       >
-        {text}
+        {lines.map((line, index) => (
+          <div key={`${line}-${index}`}>{line}</div>
+        ))}
       </div>
     </AbsoluteFill>
   );

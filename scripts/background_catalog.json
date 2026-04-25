@@ -1,0 +1,172 @@
+{
+  "trainer_office_morning": {
+    "source": "backgrounds/Bg 0001 00120.png",
+    "name_zh": "训练员室",
+    "variant": "morning"
+  },
+  "trainer_office_night": {
+    "source": "backgrounds/Bg 0001 00130.png",
+    "name_zh": "训练员室",
+    "variant": "night"
+  },
+  "trainer_office_alt": {
+    "source": "backgrounds/Bg 0021 00030.png",
+    "name_zh": "训练员室",
+    "variant": "alt"
+  },
+  "three_goddesses_statue_day": {
+    "source": "backgrounds/Bg 0002 00110.png",
+    "name_zh": "三女神像前",
+    "variant": "day"
+  },
+  "academy_entrance_day": {
+    "source": "backgrounds/Bg 0003 00110.png",
+    "name_zh": "学院入口",
+    "variant": "day"
+  },
+  "dorm_road_day": {
+    "source": "backgrounds/Bg 0004 00110.png",
+    "name_zh": "马娘宿舍前的马路",
+    "variant": "day"
+  },
+  "academy_main_road_day": {
+    "source": "backgrounds/Bg 0005 00110.png",
+    "name_zh": "学院的中心马路",
+    "variant": "day"
+  },
+  "classroom_day": {
+    "source": "backgrounds/Bg 0006 00110.png",
+    "name_zh": "教室",
+    "variant": "day"
+  },
+  "school_corridor_day": {
+    "source": "backgrounds/Bg 0007 00110.png",
+    "name_zh": "教学楼走廊",
+    "variant": "day"
+  },
+  "school_stairs_day": {
+    "source": "backgrounds/Bg 0008 00111.png",
+    "name_zh": "教学楼楼梯",
+    "variant": "day"
+  },
+  "track_day": {
+    "source": "backgrounds/Bg 0009 00110.png",
+    "name_zh": "跑道",
+    "variant": "day"
+  },
+  "racecourse_stage_day": {
+    "source": "backgrounds/Bg 0010 00110.png",
+    "name_zh": "赛马场观众席（舞台和观众席）",
+    "variant": "day"
+  },
+  "cafeteria_day": {
+    "source": "backgrounds/Bg 0011 00110.png",
+    "name_zh": "食堂",
+    "variant": "day"
+  },
+  "pool_day": {
+    "source": "backgrounds/Bg 0013 00110.png",
+    "name_zh": "游泳池",
+    "variant": "day"
+  },
+  "indoor_training_ground_day": {
+    "source": "backgrounds/Bg 0014 00110.png",
+    "name_zh": "室内练习场",
+    "variant": "day"
+  },
+  "gym_day": {
+    "source": "backgrounds/Bg 0015 00110.png",
+    "name_zh": "训练器材室（健身房）",
+    "variant": "day"
+  },
+  "rooftop_day": {
+    "source": "backgrounds/Bg 0016 00110.png",
+    "name_zh": "天台",
+    "variant": "day"
+  },
+  "dorm_room_day": {
+    "source": "backgrounds/Bg 0017 00110.png",
+    "name_zh": "马娘的宿舍房间",
+    "variant": "day"
+  },
+  "infirmary_day": {
+    "source": "backgrounds/Bg 0019 00110.png",
+    "name_zh": "医务室",
+    "variant": "day"
+  },
+  "indoor_basketball_court_day": {
+    "source": "backgrounds/Bg 0020 00110.png",
+    "name_zh": "室内篮球场",
+    "variant": "day"
+  },
+  "student_council_room_day": {
+    "source": "backgrounds/Bg 0022 00110.png",
+    "name_zh": "学生会室",
+    "variant": "day"
+  },
+  "academy_gate_day": {
+    "source": "backgrounds/Bg 0023 00111.png",
+    "name_zh": "学院大门",
+    "variant": "day"
+  },
+  "racecourse_track_stands_day": {
+    "source": "backgrounds/Bg 0024 00110.png",
+    "name_zh": "赛马场观众席（跑道）",
+    "variant": "day"
+  },
+  "pre_race_ready_room_day": {
+    "source": "backgrounds/Bg 0025 00110.png",
+    "name_zh": "赛马娘上场前的准备室",
+    "variant": "day"
+  },
+  "shopping_street_day": {
+    "source": "backgrounds/Bg 0028 00111.png",
+    "name_zh": "市区购物街",
+    "variant": "day"
+  },
+  "street_2_day": {
+    "source": "backgrounds/Bg 0029 00111.png",
+    "name_zh": "街道2",
+    "variant": "day"
+  },
+  "street_3_day": {
+    "source": "backgrounds/Bg 0030 00111.png",
+    "name_zh": "街道3",
+    "variant": "day"
+  },
+  "park_day": {
+    "source": "backgrounds/Bg 0031 00110.png",
+    "name_zh": "公园",
+    "variant": "day"
+  },
+  "riverside_evening": {
+    "source": "backgrounds/Bg 0033 00120.png",
+    "name_zh": "河边",
+    "variant": "evening"
+  },
+  "amusement_park_day": {
+    "source": "backgrounds/Bg 0034 00110.png",
+    "name_zh": "游乐园",
+    "variant": "day"
+  },
+  "shrine_night": {
+    "source": "backgrounds/Bg 0039 00130.png",
+    "name_zh": "神社",
+    "variant": "night"
+  },
+  "summer_camp_lodging_day": {
+    "source": "backgrounds/Bg 0040 02110.png",
+    "name_zh": "夏季合宿时的宿舍",
+    "variant": "day"
+  },
+  "beach_day": {
+    "source": "backgrounds/Bg 0042 02111.png",
+    "name_zh": "海边",
+    "variant": "day"
+  },
+  "forest_path_day": {
+    "source": "backgrounds/Bg 0051 00110.png",
+    "name_zh": "森林小路",
+    "variant": "day"
+  }
+}

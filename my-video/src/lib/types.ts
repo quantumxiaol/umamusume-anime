@@ -41,6 +41,8 @@ const AudioElementSchema = TimelineElementSchema.extend({
 
 const TimelineSchema = z.object({
   shortTitle: z.string(),
+  width: z.number().optional(),
+  height: z.number().optional(),
   elements: z.array(BackgroundElementSchema),
   text: z.array(TextElementSchema),
   audio: z.array(AudioElementSchema),

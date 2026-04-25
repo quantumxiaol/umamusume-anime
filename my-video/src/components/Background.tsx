@@ -9,7 +9,7 @@ import { FPS, IMAGE_HEIGHT, IMAGE_WIDTH } from "../lib/constants";
 import { BackgroundElement } from "../lib/types";
 import { calculateBlur, getImagePath } from "../lib/utils";
 
-const EXTRA_SCALE = 0.2;
+const EXTRA_SCALE = 0;
 
 export const Background: React.FC<{
   item: BackgroundElement;
@@ -19,10 +19,12 @@ export const Background: React.FC<{
   const localMs = (frame / FPS) * 1000;
   const { width, height } = useVideoConfig();
 
-  const imageRatio = IMAGE_HEIGHT / IMAGE_WIDTH;
-
-  const imgWidth = height;
-  const imgHeight = imgWidth * imageRatio;
+  const imageRatio = IMAGE_WIDTH / IMAGE_HEIGHT;
+  const compositionRatio = width / height;
+  const baseWidth =
+    compositionRatio > imageRatio ? width : height * imageRatio;
+  const baseHeight =
+    compositionRatio > imageRatio ? width / imageRatio : height;
   let animScale = 1 + EXTRA_SCALE;
 
   const currentScaleAnim = item.animations?.find(
@@ -41,8 +43,8 @@ export const Background: React.FC<{
   }
 
   const imgScale = animScale;
-  const top = -(imgHeight * imgScale - height) / 2;
-  const left = -(imgWidth * imgScale - width) / 2;
+  const top = -(baseHeight * imgScale - height) / 2;
+  const left = -(baseWidth * imgScale - width) / 2;
 
   const blur = calculateBlur({ item, localMs });
   const maxBlur = 25;
@@ -54,8 +56,8 @@ export const Background: React.FC<{
       <Img
         src={staticFile(getImagePath(project, item.imageUrl))}
         style={{
-          width: imgWidth * imgScale,
-          height: imgHeight * imgScale,
+          width: baseWidth * imgScale,
+          height: baseHeight * imgScale,
           position: "absolute",
           top,
           left,
