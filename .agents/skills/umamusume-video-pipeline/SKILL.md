@@ -35,12 +35,21 @@ Each line should use these fields:
 - `speakerId`: character id matching `characters/<speaker_id>/`; use `trainer` for trainer.
 - `background`: alias in `scripts/background_catalog.json`.
 - `characters`: optional list of on-screen sprites; use `slot` values `left`, `right`, `center_left`, `center_right`, `center`.
+- `characters[].spriteScale`: optional base scale only for special framing. Do not use it to mark the speaking character.
 - `audio`: only for voiced character lines, usually `draft/<project>_audio/<line_id>.wav`.
 - `spokenText`: text sent to TTS.
 - `subtitleJa` and `subtitleZh`: two-line bilingual subtitles.
 - `showSpeaker: false`: for trainer or other non-visual speakers.
 
-Trainer and narration can be silent: omit `audio`. The director estimates duration from text.
+Trainer and narration can be voiced if they have `characters/<speaker_id>/reference.mp3` or `reference.wav`.
+
+The director automatically applies active-speaker styling per line:
+
+- `line.speakerId == characters[].speakerId`: active character, slightly larger and full brightness.
+- Other visible characters: slightly smaller and dimmed.
+- Narration/voice-over lines: neutral framing; visible characters are not emphasized.
+
+Keep JSON focused on who is present and where they stand. Avoid hand-writing per-line active-speaker scale changes in the script.
 
 For EndDay conventions:
 

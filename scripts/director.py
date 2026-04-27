@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from PIL import Image
+from PIL import Image, ImageEnhance
 
 
 DEFAULT_BACKGROUND_CATALOG = Path("scripts") / "background_catalog.json"
@@ -16,6 +16,10 @@ DEFAULT_CHARACTERS_ROOT = Path("characters")
 DEFAULT_CONTENT_ROOT = Path("my-video") / "public" / "content"
 DEFAULT_CANVAS_SIZE = (1920, 1080)
 DEFAULT_LINE_DURATION_MS = 3000
+DEFAULT_SPRITE_SCALE = 0.92
+ACTIVE_SPRITE_SCALE_MULTIPLIER = 1.04
+INACTIVE_SPRITE_SCALE_MULTIPLIER = 0.97
+INACTIVE_SPRITE_BRIGHTNESS = 0.68
 
 
 class DirectorError(RuntimeError):
@@ -54,6 +58,11 @@ def build_parser() -> argparse.ArgumentParser:
     build.add_argument("--width", type=int, default=DEFAULT_CANVAS_SIZE[0], help="Output frame width.")
     build.add_argument("--height", type=int, default=DEFAULT_CANVAS_SIZE[1], help="Output frame height.")
     build.add_argument("--overwrite", action="store_true", help="Overwrite generated images and copied audio.")
+    build.add_argument(
+        "--no-auto-focus",
+        action="store_true",
+        help="Disable automatic active-speaker scale/brightness styling.",
+    )
 
     list_bg = subparsers.add_parser("list-backgrounds", help="Print known background aliases.")
     list_bg.add_argument("--background-catalog", default=str(DEFAULT_BACKGROUND_CATALOG), help="Background catalog JSON.")
@@ -117,6 +126,7 @@ def build_project(args: argparse.Namespace) -> None:
             characters_root=Path(args.characters_root),
             repo_root=repo_root,
             canvas_size=canvas_size,
+            auto_focus=not args.no_auto_focus,
         )
 
         start_ms = current_ms
@@ -199,6 +209,7 @@ def compose_frame(
     characters_root: Path,
     repo_root: Path,
     canvas_size: tuple[int, int],
+    auto_focus: bool,
 ) -> None:
     background_path = resolve_background_path(line.get("background"), catalog, repo_root)
     canvas = crop_cover(Image.open(background_path).convert("RGBA"), canvas_size)
@@ -206,7 +217,9 @@ def compose_frame(
     for character in character_specs_for_line(line):
         sprite_path = resolve_sprite_path(line=character, characters_root=characters_root, repo_root=repo_root)
         sprite = Image.open(sprite_path).convert("RGBA")
-        scale = float(character.get("spriteScale", 0.92))
+        style = character_focus_style(line=line, character=character, auto_focus=auto_focus)
+        sprite = apply_sprite_style(sprite=sprite, style=style)
+        scale = float(character.get("spriteScale", DEFAULT_SPRITE_SCALE)) * style["scale_multiplier"]
         sprite = resize_sprite(sprite, target_height=int(canvas_size[1] * scale))
         x, y = character_position(character=character, sprite=sprite, canvas_size=canvas_size)
         canvas.alpha_composite(sprite, (x, y))
@@ -265,6 +278,35 @@ def character_specs_for_line(line: dict[str, Any]) -> list[dict[str, Any]]:
     if speaker_id and line_type != "narration":
         return [dict(line)]
     return []
+
+
+def character_focus_style(*, line: dict[str, Any], character: dict[str, Any], auto_focus: bool) -> dict[str, float]:
+    if not auto_focus or character.get("focus") == "neutral" or line.get("focus") == "neutral":
+        return {"scale_multiplier": 1.0, "brightness": 1.0}
+
+    active_speaker = normalize_speaker_id(str(line.get("speakerId") or "")).lower()
+    character_speaker = normalize_speaker_id(str(character.get("speakerId") or character.get("id") or "")).lower()
+    if not active_speaker or not character_speaker:
+        return {"scale_multiplier": 1.0, "brightness": 1.0}
+
+    if active_speaker in {"voice-over", "voice_over", "narrator"} or str(line.get("type") or "") == "narration":
+        return {"scale_multiplier": 1.0, "brightness": 1.0}
+
+    if active_speaker == character_speaker:
+        return {"scale_multiplier": ACTIVE_SPRITE_SCALE_MULTIPLIER, "brightness": 1.0}
+    return {"scale_multiplier": INACTIVE_SPRITE_SCALE_MULTIPLIER, "brightness": INACTIVE_SPRITE_BRIGHTNESS}
+
+
+def apply_sprite_style(*, sprite: Image.Image, style: dict[str, float]) -> Image.Image:
+    brightness = float(style.get("brightness", 1.0))
+    if brightness == 1.0:
+        return sprite
+
+    alpha = sprite.getchannel("A")
+    rgb = ImageEnhance.Brightness(sprite.convert("RGB")).enhance(brightness)
+    styled = rgb.convert("RGBA")
+    styled.putalpha(alpha)
+    return styled
 
 
 def character_position(
