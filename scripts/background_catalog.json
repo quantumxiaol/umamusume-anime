@@ -168,5 +168,1680 @@
     "source": "backgrounds/Bg 0051 00110.png",
     "name_zh": "森林小路",
     "variant": "day"
+  },
+  "trainer_office_day_alt": {
+    "source": "backgrounds/Bg 0001 00210.png",
+    "name_zh": "训练员室",
+    "variant": "day_alt"
+  },
+  "trainer_office_dark": {
+    "source": "backgrounds/Bg 0001 00140.png",
+    "name_zh": "训练员室",
+    "variant": "dark"
+  },
+  "trainer_office_christmas": {
+    "source": "backgrounds/Bg 0001 06130.png",
+    "name_zh": "训练员室",
+    "variant": "christmas"
+  },
+  "trainer_office_new_year": {
+    "source": "backgrounds/Bg 0001 09110.png",
+    "name_zh": "训练员室",
+    "variant": "new_year"
+  },
+  "three_goddesses_statue_evening": {
+    "source": "backgrounds/Bg 0002 00120.png",
+    "name_zh": "三女神像前",
+    "variant": "evening"
+  },
+  "three_goddesses_statue_night": {
+    "source": "backgrounds/Bg 0002 00130.png",
+    "name_zh": "三女神像前",
+    "variant": "night"
+  },
+  "three_goddesses_statue_rain": {
+    "source": "backgrounds/Bg 0002 00410.png",
+    "name_zh": "三女神像前",
+    "variant": "rain"
+  },
+  "three_goddesses_statue_festival": {
+    "source": "backgrounds/Bg 0002 08111.png",
+    "name_zh": "三女神像前",
+    "variant": "festival"
+  },
+  "academy_entrance_evening": {
+    "source": "backgrounds/Bg 0003 00120.png",
+    "name_zh": "学院入口",
+    "variant": "evening"
+  },
+  "academy_entrance_night": {
+    "source": "backgrounds/Bg 0003 00130.png",
+    "name_zh": "学院入口",
+    "variant": "night"
+  },
+  "academy_entrance_rain": {
+    "source": "backgrounds/Bg 0003 00410.png",
+    "name_zh": "学院入口",
+    "variant": "rain"
+  },
+  "academy_entrance_festival": {
+    "source": "backgrounds/Bg 0003 08111.png",
+    "name_zh": "学院入口",
+    "variant": "festival"
+  },
+  "academy_entrance_welcome": {
+    "source": "backgrounds/Bg 0003 10111.png",
+    "name_zh": "学院入口",
+    "variant": "welcome"
+  },
+  "dorm_road_evening": {
+    "source": "backgrounds/Bg 0004 00120.png",
+    "name_zh": "马娘宿舍前的马路",
+    "variant": "evening"
+  },
+  "dorm_road_night": {
+    "source": "backgrounds/Bg 0004 00130.png",
+    "name_zh": "马娘宿舍前的马路",
+    "variant": "night"
+  },
+  "dorm_road_halloween": {
+    "source": "backgrounds/Bg 0004 07110.png",
+    "name_zh": "马娘宿舍前的马路",
+    "variant": "halloween"
+  },
+  "academy_main_road_night": {
+    "source": "backgrounds/Bg 0005 00130.png",
+    "name_zh": "学院的中心马路",
+    "variant": "night"
+  },
+  "academy_main_road_rain": {
+    "source": "backgrounds/Bg 0005 00410.png",
+    "name_zh": "学院的中心马路",
+    "variant": "rain"
+  },
+  "academy_main_road_autumn": {
+    "source": "backgrounds/Bg 0005 03110.png",
+    "name_zh": "学院的中心马路",
+    "variant": "autumn"
+  },
+  "academy_main_road_winter": {
+    "source": "backgrounds/Bg 0005 04110.png",
+    "name_zh": "学院的中心马路",
+    "variant": "winter"
+  },
+  "academy_main_road_snow": {
+    "source": "backgrounds/Bg 0005 04310.png",
+    "name_zh": "学院的中心马路",
+    "variant": "snow"
+  },
+  "academy_main_road_cherry_blossom": {
+    "source": "backgrounds/Bg 0005 05110.png",
+    "name_zh": "学院的中心马路",
+    "variant": "cherry_blossom"
+  },
+  "classroom_evening": {
+    "source": "backgrounds/Bg 0006 00120.png",
+    "name_zh": "教室",
+    "variant": "evening"
+  },
+  "classroom_night": {
+    "source": "backgrounds/Bg 0006 00130.png",
+    "name_zh": "教室",
+    "variant": "night"
+  },
+  "classroom_festival": {
+    "source": "backgrounds/Bg 0006 08113.png",
+    "name_zh": "教室",
+    "variant": "festival"
+  },
+  "school_corridor_evening": {
+    "source": "backgrounds/Bg 0007 00120.png",
+    "name_zh": "教学楼走廊",
+    "variant": "evening"
+  },
+  "school_corridor_night": {
+    "source": "backgrounds/Bg 0007 00130.png",
+    "name_zh": "教学楼走廊",
+    "variant": "night"
+  },
+  "school_corridor_festival": {
+    "source": "backgrounds/Bg 0007 08111.png",
+    "name_zh": "教学楼走廊",
+    "variant": "festival"
+  },
+  "school_stairs_evening": {
+    "source": "backgrounds/Bg 0008 00120.png",
+    "name_zh": "教学楼楼梯",
+    "variant": "evening"
+  },
+  "track_evening": {
+    "source": "backgrounds/Bg 0009 00120.png",
+    "name_zh": "跑道",
+    "variant": "evening"
+  },
+  "track_night": {
+    "source": "backgrounds/Bg 0009 00130.png",
+    "name_zh": "跑道",
+    "variant": "night"
+  },
+  "track_dark": {
+    "source": "backgrounds/Bg 0009 00140.png",
+    "name_zh": "跑道",
+    "variant": "dark"
+  },
+  "track_rain": {
+    "source": "backgrounds/Bg 0009 00410.png",
+    "name_zh": "跑道",
+    "variant": "rain"
+  },
+  "racecourse_stage_evening": {
+    "source": "backgrounds/Bg 0010 00121.png",
+    "name_zh": "赛马场观众席（舞台和观众席）",
+    "variant": "evening"
+  },
+  "racecourse_stage_night": {
+    "source": "backgrounds/Bg 0010 00130.png",
+    "name_zh": "赛马场观众席（舞台和观众席）",
+    "variant": "night"
+  },
+  "racecourse_stage_festival": {
+    "source": "backgrounds/Bg 0010 08123.png",
+    "name_zh": "赛马场观众席（舞台和观众席）",
+    "variant": "festival"
+  },
+  "cafeteria_night": {
+    "source": "backgrounds/Bg 0011 00130.png",
+    "name_zh": "食堂",
+    "variant": "night"
+  },
+  "cafeteria_christmas": {
+    "source": "backgrounds/Bg 0011 06110.png",
+    "name_zh": "食堂",
+    "variant": "christmas"
+  },
+  "convenience_store_interior": {
+    "source": "backgrounds/Bg 0012 00010.png",
+    "name_zh": "便利店内",
+    "variant": "interior"
+  },
+  "pool_night": {
+    "source": "backgrounds/Bg 0013 00130.png",
+    "name_zh": "游泳池",
+    "variant": "night"
+  },
+  "indoor_training_ground_night": {
+    "source": "backgrounds/Bg 0014 00130.png",
+    "name_zh": "室内练习场",
+    "variant": "night"
+  },
+  "gym_night": {
+    "source": "backgrounds/Bg 0015 00130.png",
+    "name_zh": "训练器材室（健身房）",
+    "variant": "night"
+  },
+  "rooftop_evening": {
+    "source": "backgrounds/Bg 0016 00120.png",
+    "name_zh": "天台",
+    "variant": "evening"
+  },
+  "rooftop_night": {
+    "source": "backgrounds/Bg 0016 00130.png",
+    "name_zh": "天台",
+    "variant": "night"
+  },
+  "dorm_room_night": {
+    "source": "backgrounds/Bg 0017 00130.png",
+    "name_zh": "马娘的宿舍房间",
+    "variant": "night"
+  },
+  "dorm_room_dark": {
+    "source": "backgrounds/Bg 0017 00140.png",
+    "name_zh": "马娘的宿舍房间",
+    "variant": "dark"
+  },
+  "common_room_day": {
+    "source": "backgrounds/Bg 0018 00001.png",
+    "name_zh": "公共休息室",
+    "variant": "day"
+  },
+  "infirmary_night": {
+    "source": "backgrounds/Bg 0019 00130.png",
+    "name_zh": "医务室",
+    "variant": "night"
+  },
+  "indoor_basketball_court_night": {
+    "source": "backgrounds/Bg 0020 00130.png",
+    "name_zh": "室内篮球场",
+    "variant": "night"
+  },
+  "student_council_room_night": {
+    "source": "backgrounds/Bg 0022 00130.png",
+    "name_zh": "学生会室",
+    "variant": "night"
+  },
+  "academy_gate_evening": {
+    "source": "backgrounds/Bg 0023 00121.png",
+    "name_zh": "学院大门",
+    "variant": "evening"
+  },
+  "academy_gate_rain": {
+    "source": "backgrounds/Bg 0023 00411.png",
+    "name_zh": "学院大门",
+    "variant": "rain"
+  },
+  "racecourse_track_stands_night": {
+    "source": "backgrounds/Bg 0024 00130.png",
+    "name_zh": "赛马场观众席（跑道）",
+    "variant": "night"
+  },
+  "racecourse_track_stands_rain": {
+    "source": "backgrounds/Bg 0024 00410.png",
+    "name_zh": "赛马场观众席（跑道）",
+    "variant": "rain"
+  },
+  "pre_race_ready_room_night": {
+    "source": "backgrounds/Bg 0025 00130.png",
+    "name_zh": "赛马娘上场前的准备室",
+    "variant": "night"
+  },
+  "stage_backstage_day": {
+    "source": "backgrounds/Bg 0026 00110.png",
+    "name_zh": "舞台后台",
+    "variant": "day"
+  },
+  "stage_backstage_night": {
+    "source": "backgrounds/Bg 0026 00130.png",
+    "name_zh": "舞台后台",
+    "variant": "night"
+  },
+  "library_day": {
+    "source": "backgrounds/Bg 0027 00010.png",
+    "name_zh": "图书馆",
+    "variant": "day"
+  },
+  "shopping_street_evening": {
+    "source": "backgrounds/Bg 0028 00121.png",
+    "name_zh": "市区购物街",
+    "variant": "evening"
+  },
+  "shopping_street_night": {
+    "source": "backgrounds/Bg 0028 00131.png",
+    "name_zh": "市区购物街",
+    "variant": "night"
+  },
+  "shopping_street_rain": {
+    "source": "backgrounds/Bg 0028 00410.png",
+    "name_zh": "市区购物街",
+    "variant": "rain"
+  },
+  "street_2_evening": {
+    "source": "backgrounds/Bg 0029 00121.png",
+    "name_zh": "街道2",
+    "variant": "evening"
+  },
+  "street_2_night": {
+    "source": "backgrounds/Bg 0029 00131.png",
+    "name_zh": "街道2",
+    "variant": "night"
+  },
+  "street_2_winter": {
+    "source": "backgrounds/Bg 0029 00311.png",
+    "name_zh": "街道2",
+    "variant": "winter"
+  },
+  "street_2_rain": {
+    "source": "backgrounds/Bg 0029 00411.png",
+    "name_zh": "街道2",
+    "variant": "rain"
+  },
+  "street_2_illumination": {
+    "source": "backgrounds/Bg 0029 06131.png",
+    "name_zh": "街道2",
+    "variant": "illumination"
+  },
+  "street_3_evening": {
+    "source": "backgrounds/Bg 0030 00121.png",
+    "name_zh": "街道3",
+    "variant": "evening"
+  },
+  "street_3_night": {
+    "source": "backgrounds/Bg 0030 00131.png",
+    "name_zh": "街道3",
+    "variant": "night"
+  },
+  "street_3_rain": {
+    "source": "backgrounds/Bg 0030 00411.png",
+    "name_zh": "街道3",
+    "variant": "rain"
+  },
+  "park_evening": {
+    "source": "backgrounds/Bg 0031 00121.png",
+    "name_zh": "公园",
+    "variant": "evening"
+  },
+  "park_night": {
+    "source": "backgrounds/Bg 0031 00130.png",
+    "name_zh": "公园",
+    "variant": "night"
+  },
+  "mall_atrium_day": {
+    "source": "backgrounds/Bg 0032 00001.png",
+    "name_zh": "商场中庭",
+    "variant": "day"
+  },
+  "riverside_day": {
+    "source": "backgrounds/Bg 0033 00110.png",
+    "name_zh": "河边",
+    "variant": "day"
+  },
+  "riverside_night": {
+    "source": "backgrounds/Bg 0033 00130.png",
+    "name_zh": "河边",
+    "variant": "night"
+  },
+  "riverside_twilight": {
+    "source": "backgrounds/Bg 0033 00150.png",
+    "name_zh": "河边",
+    "variant": "twilight"
+  },
+  "riverside_rain": {
+    "source": "backgrounds/Bg 0033 00410.png",
+    "name_zh": "河边",
+    "variant": "rain"
+  },
+  "amusement_park_evening": {
+    "source": "backgrounds/Bg 0034 00120.png",
+    "name_zh": "游乐园",
+    "variant": "evening"
+  },
+  "amusement_park_night": {
+    "source": "backgrounds/Bg 0034 00130.png",
+    "name_zh": "游乐园",
+    "variant": "night"
+  },
+  "cinema_lobby": {
+    "source": "backgrounds/Bg 0035 00001.png",
+    "name_zh": "电影院大厅",
+    "variant": "interior"
+  },
+  "arcade_game_plaza": {
+    "source": "backgrounds/Bg 0036 00001.png",
+    "name_zh": "游戏厅",
+    "variant": "interior"
+  },
+  "sky_blue": {
+    "source": "backgrounds/Bg 0037 00110.png",
+    "name_zh": "天空",
+    "variant": "blue"
+  },
+  "sky_storm": {
+    "source": "backgrounds/Bg 0037 00111.png",
+    "name_zh": "天空",
+    "variant": "storm"
+  },
+  "sky_sunset": {
+    "source": "backgrounds/Bg 0037 00120.png",
+    "name_zh": "天空",
+    "variant": "sunset"
+  },
+  "sky_star_night": {
+    "source": "backgrounds/Bg 0037 00130.png",
+    "name_zh": "天空",
+    "variant": "star_night"
+  },
+  "sky_rain": {
+    "source": "backgrounds/Bg 0037 00410.png",
+    "name_zh": "天空",
+    "variant": "rain"
+  },
+  "sky_snow": {
+    "source": "backgrounds/Bg 0037 00710.png",
+    "name_zh": "天空",
+    "variant": "snow"
+  },
+  "shrine_day": {
+    "source": "backgrounds/Bg 0039 00110.png",
+    "name_zh": "神社",
+    "variant": "day"
+  },
+  "shrine_evening": {
+    "source": "backgrounds/Bg 0039 00120.png",
+    "name_zh": "神社",
+    "variant": "evening"
+  },
+  "summer_camp_lodging_night": {
+    "source": "backgrounds/Bg 0040 02130.png",
+    "name_zh": "夏季合宿时的宿舍",
+    "variant": "night"
+  },
+  "lodging_hallway": {
+    "source": "backgrounds/Bg 0041 00000.png",
+    "name_zh": "合宿宿舍走廊",
+    "variant": "interior"
+  },
+  "beach_evening": {
+    "source": "backgrounds/Bg 0042 02120.png",
+    "name_zh": "海边",
+    "variant": "evening"
+  },
+  "beach_night": {
+    "source": "backgrounds/Bg 0042 02130.png",
+    "name_zh": "海边",
+    "variant": "night"
+  },
+  "festival_stalls_night": {
+    "source": "backgrounds/Bg 0043 02131.png",
+    "name_zh": "祭典摊位",
+    "variant": "night"
+  },
+  "karaoke_room": {
+    "source": "backgrounds/Bg 0044 00000.png",
+    "name_zh": "卡拉OK房间",
+    "variant": "interior"
+  },
+  "diner_restaurant": {
+    "source": "backgrounds/Bg 0045 00001.png",
+    "name_zh": "餐厅",
+    "variant": "interior"
+  },
+  "clothing_store": {
+    "source": "backgrounds/Bg 0046 00001.png",
+    "name_zh": "服装店",
+    "variant": "interior"
+  },
+  "aquarium": {
+    "source": "backgrounds/Bg 0047 00001.png",
+    "name_zh": "水族馆",
+    "variant": "interior"
+  },
+  "modern_school_building_day": {
+    "source": "backgrounds/Bg 0048 00111.png",
+    "name_zh": "现代教学楼",
+    "variant": "day"
+  },
+  "museum_exhibition_hall": {
+    "source": "backgrounds/Bg 0049 00000.png",
+    "name_zh": "博物馆展厅",
+    "variant": "interior"
+  },
+  "grassland_day": {
+    "source": "backgrounds/Bg 0050 00000.png",
+    "name_zh": "草地",
+    "variant": "day"
+  },
+  "forest_path_night": {
+    "source": "backgrounds/Bg 0051 00130.png",
+    "name_zh": "森林小路",
+    "variant": "night"
+  },
+  "forest_path_snow": {
+    "source": "backgrounds/Bg 0051 00310.png",
+    "name_zh": "森林小路",
+    "variant": "snow"
+  },
+  "forest_path_autumn": {
+    "source": "backgrounds/Bg 0051 12110.png",
+    "name_zh": "森林小路",
+    "variant": "autumn"
+  },
+  "school_side_courtyard_day": {
+    "source": "backgrounds/Bg 0052 00110.png",
+    "name_zh": "校舍侧庭",
+    "variant": "day"
+  },
+  "school_side_courtyard_evening": {
+    "source": "backgrounds/Bg 0052 00120.png",
+    "name_zh": "校舍侧庭",
+    "variant": "evening"
+  },
+  "campus_lawn_day": {
+    "source": "backgrounds/Bg 0053 00110.png",
+    "name_zh": "学院草坪",
+    "variant": "day"
+  },
+  "campus_lawn_evening": {
+    "source": "backgrounds/Bg 0053 00120.png",
+    "name_zh": "学院草坪",
+    "variant": "evening"
+  },
+  "campus_lawn_night": {
+    "source": "backgrounds/Bg 0053 00130.png",
+    "name_zh": "学院草坪",
+    "variant": "night"
+  },
+  "training_tunnel": {
+    "source": "backgrounds/Bg 0054 00110.png",
+    "name_zh": "训练通道",
+    "variant": "day"
+  },
+  "race_gate_day": {
+    "source": "backgrounds/Bg 0055 00110.png",
+    "name_zh": "起跑闸门",
+    "variant": "day"
+  },
+  "race_gate_evening": {
+    "source": "backgrounds/Bg 0055 00120.png",
+    "name_zh": "起跑闸门",
+    "variant": "evening"
+  },
+  "race_gate_night": {
+    "source": "backgrounds/Bg 0055 00130.png",
+    "name_zh": "起跑闸门",
+    "variant": "night"
+  },
+  "race_gate_rain": {
+    "source": "backgrounds/Bg 0055 00410.png",
+    "name_zh": "起跑闸门",
+    "variant": "rain"
+  },
+  "racecourse_turf_day": {
+    "source": "backgrounds/Bg 0056 00111.png",
+    "name_zh": "赛马场草地",
+    "variant": "day"
+  },
+  "racecourse_turf_rain": {
+    "source": "backgrounds/Bg 0056 00411.png",
+    "name_zh": "赛马场草地",
+    "variant": "rain"
+  },
+  "flower_garden_day": {
+    "source": "backgrounds/Bg 0057 00110.png",
+    "name_zh": "花园",
+    "variant": "day"
+  },
+  "flower_garden_evening": {
+    "source": "backgrounds/Bg 0057 00120.png",
+    "name_zh": "花园",
+    "variant": "evening"
+  },
+  "flower_garden_night": {
+    "source": "backgrounds/Bg 0057 00130.png",
+    "name_zh": "花园",
+    "variant": "night"
+  },
+  "cafe_lounge": {
+    "source": "backgrounds/Bg 0058 00011.png",
+    "name_zh": "咖啡厅",
+    "variant": "interior"
+  },
+  "hot_spring_inn_day": {
+    "source": "backgrounds/Bg 0059 00110.png",
+    "name_zh": "温泉旅馆",
+    "variant": "day"
+  },
+  "hot_spring_inn_night": {
+    "source": "backgrounds/Bg 0059 00130.png",
+    "name_zh": "温泉旅馆",
+    "variant": "night"
+  },
+  "tropical_beach_day": {
+    "source": "backgrounds/Bg 0060 00110.png",
+    "name_zh": "热带海滩",
+    "variant": "day"
+  },
+  "tropical_beach_evening": {
+    "source": "backgrounds/Bg 0060 00120.png",
+    "name_zh": "热带海滩",
+    "variant": "evening"
+  },
+  "tropical_beach_night": {
+    "source": "backgrounds/Bg 0060 00130.png",
+    "name_zh": "热带海滩",
+    "variant": "night"
+  },
+  "countryside_path_day": {
+    "source": "backgrounds/Bg 0061 00110.png",
+    "name_zh": "乡间道路",
+    "variant": "day"
+  },
+  "countryside_path_night": {
+    "source": "backgrounds/Bg 0061 00130.png",
+    "name_zh": "乡间道路",
+    "variant": "night"
+  },
+  "countryside_path_twilight": {
+    "source": "backgrounds/Bg 0061 00150.png",
+    "name_zh": "乡间道路",
+    "variant": "twilight"
+  },
+  "ranch_day": {
+    "source": "backgrounds/Bg 0062 00110.png",
+    "name_zh": "牧场",
+    "variant": "day"
+  },
+  "station_terminal_day": {
+    "source": "backgrounds/Bg 0063 00111.png",
+    "name_zh": "车站大厅",
+    "variant": "day"
+  },
+  "bus_interior_day": {
+    "source": "backgrounds/Bg 0064 00110.png",
+    "name_zh": "巴士内",
+    "variant": "day"
+  },
+  "bus_interior_evening": {
+    "source": "backgrounds/Bg 0064 00120.png",
+    "name_zh": "巴士内",
+    "variant": "evening"
+  },
+  "bus_interior_night": {
+    "source": "backgrounds/Bg 0064 00130.png",
+    "name_zh": "巴士内",
+    "variant": "night"
+  },
+  "train_interior_day": {
+    "source": "backgrounds/Bg 0065 00111.png",
+    "name_zh": "列车内",
+    "variant": "day"
+  },
+  "train_interior_evening": {
+    "source": "backgrounds/Bg 0065 00121.png",
+    "name_zh": "列车内",
+    "variant": "evening"
+  },
+  "train_interior_night": {
+    "source": "backgrounds/Bg 0065 00131.png",
+    "name_zh": "列车内",
+    "variant": "night"
+  },
+  "train_station_platform_day": {
+    "source": "backgrounds/Bg 0066 00111.png",
+    "name_zh": "车站站台",
+    "variant": "day"
+  },
+  "tatami_room_day": {
+    "source": "backgrounds/Bg 0067 00110.png",
+    "name_zh": "和室",
+    "variant": "day"
+  },
+  "tatami_room_night": {
+    "source": "backgrounds/Bg 0067 00130.png",
+    "name_zh": "和室",
+    "variant": "night"
+  },
+  "terrace_cafe_day": {
+    "source": "backgrounds/Bg 0068 00110.png",
+    "name_zh": "露台咖啡厅",
+    "variant": "day"
+  },
+  "terrace_cafe_evening": {
+    "source": "backgrounds/Bg 0068 00121.png",
+    "name_zh": "露台咖啡厅",
+    "variant": "evening"
+  },
+  "terrace_cafe_night": {
+    "source": "backgrounds/Bg 0068 00131.png",
+    "name_zh": "露台咖啡厅",
+    "variant": "night"
+  },
+  "park_promenade_day": {
+    "source": "backgrounds/Bg 0069 00111.png",
+    "name_zh": "公园步道",
+    "variant": "day"
+  },
+  "park_promenade_evening": {
+    "source": "backgrounds/Bg 0069 00121.png",
+    "name_zh": "公园步道",
+    "variant": "evening"
+  },
+  "park_promenade_night": {
+    "source": "backgrounds/Bg 0069 00131.png",
+    "name_zh": "公园步道",
+    "variant": "night"
+  },
+  "park_promenade_snow": {
+    "source": "backgrounds/Bg 0069 04311.png",
+    "name_zh": "公园步道",
+    "variant": "snow"
+  },
+  "racecourse_field_day": {
+    "source": "backgrounds/Bg 0070 00110.png",
+    "name_zh": "赛马场草坪",
+    "variant": "day"
+  },
+  "racecourse_field_evening": {
+    "source": "backgrounds/Bg 0070 00150.png",
+    "name_zh": "赛马场草坪",
+    "variant": "evening"
+  },
+  "dirt_track_day": {
+    "source": "backgrounds/Bg 0071 00110.png",
+    "name_zh": "泥地跑道",
+    "variant": "day"
+  },
+  "track_close_day": {
+    "source": "backgrounds/Bg 0072 00110.png",
+    "name_zh": "跑道近景",
+    "variant": "day"
+  },
+  "racecourse_trackside_day": {
+    "source": "backgrounds/Bg 0074 00110.png",
+    "name_zh": "赛马场跑道边",
+    "variant": "day"
+  },
+  "racecourse_trackside_evening": {
+    "source": "backgrounds/Bg 0074 00120.png",
+    "name_zh": "赛马场跑道边",
+    "variant": "evening"
+  },
+  "racecourse_trackside_night": {
+    "source": "backgrounds/Bg 0074 00130.png",
+    "name_zh": "赛马场跑道边",
+    "variant": "night"
+  },
+  "racecourse_trackside_rain": {
+    "source": "backgrounds/Bg 0074 00410.png",
+    "name_zh": "赛马场跑道边",
+    "variant": "rain"
+  },
+  "winner_backdrop_room": {
+    "source": "backgrounds/Bg 0075 00001.png",
+    "name_zh": "胜者采访背景室",
+    "variant": "interior"
+  },
+  "turf_training_field_day": {
+    "source": "backgrounds/Bg 0076 00110.png",
+    "name_zh": "草地训练场",
+    "variant": "day"
+  },
+  "turf_training_field_evening": {
+    "source": "backgrounds/Bg 0076 00120.png",
+    "name_zh": "草地训练场",
+    "variant": "evening"
+  },
+  "turf_training_field_rain": {
+    "source": "backgrounds/Bg 0076 00410.png",
+    "name_zh": "草地训练场",
+    "variant": "rain"
+  },
+  "racecourse_paddock_day": {
+    "source": "backgrounds/Bg 0077 00110.png",
+    "name_zh": "赛马场展示区",
+    "variant": "day"
+  },
+  "racecourse_paddock_night": {
+    "source": "backgrounds/Bg 0077 00130.png",
+    "name_zh": "赛马场展示区",
+    "variant": "night"
+  },
+  "racecourse_paddock_rain": {
+    "source": "backgrounds/Bg 0077 00410.png",
+    "name_zh": "赛马场展示区",
+    "variant": "rain"
+  },
+  "racecourse_rail_day": {
+    "source": "backgrounds/Bg 0078 00110.png",
+    "name_zh": "赛马场栏杆旁",
+    "variant": "day"
+  },
+  "racecourse_rail_night": {
+    "source": "backgrounds/Bg 0078 00130.png",
+    "name_zh": "赛马场栏杆旁",
+    "variant": "night"
+  },
+  "racecourse_rail_rain": {
+    "source": "backgrounds/Bg 0078 00410.png",
+    "name_zh": "赛马场栏杆旁",
+    "variant": "rain"
+  },
+  "racecourse_lawn_day": {
+    "source": "backgrounds/Bg 0079 00110.png",
+    "name_zh": "赛马场草坪观众区",
+    "variant": "day"
+  },
+  "racecourse_lawn_night": {
+    "source": "backgrounds/Bg 0079 00132.png",
+    "name_zh": "赛马场草坪观众区",
+    "variant": "night"
+  },
+  "racecourse_lawn_rain": {
+    "source": "backgrounds/Bg 0079 00411.png",
+    "name_zh": "赛马场草坪观众区",
+    "variant": "rain"
+  },
+  "japanese_entrance_hall": {
+    "source": "backgrounds/Bg 0085 00000.png",
+    "name_zh": "日式入口大厅",
+    "variant": "interior"
+  },
+  "racecourse_plaza_day": {
+    "source": "backgrounds/Bg 0088 00111.png",
+    "name_zh": "赛马场广场",
+    "variant": "day"
+  },
+  "racecourse_plaza_night": {
+    "source": "backgrounds/Bg 0088 00130.png",
+    "name_zh": "赛马场广场",
+    "variant": "night"
+  },
+  "racecourse_plaza_rain": {
+    "source": "backgrounds/Bg 0088 00410.png",
+    "name_zh": "赛马场广场",
+    "variant": "rain"
+  },
+  "green_cafe_interior": {
+    "source": "backgrounds/Bg 0089 00001.png",
+    "name_zh": "绿色咖啡厅",
+    "variant": "interior"
+  },
+  "cooking_studio": {
+    "source": "backgrounds/Bg 0090 00000.png",
+    "name_zh": "料理教室",
+    "variant": "interior"
+  },
+  "decorated_cooking_studio": {
+    "source": "backgrounds/Bg 0090 13000.png",
+    "name_zh": "料理教室",
+    "variant": "decorated"
+  },
+  "classic_study_day": {
+    "source": "backgrounds/Bg 0091 00100.png",
+    "name_zh": "古典书房",
+    "variant": "day"
+  },
+  "classic_study_evening": {
+    "source": "backgrounds/Bg 0091 00120.png",
+    "name_zh": "古典书房",
+    "variant": "evening"
+  },
+  "beach_shop_day": {
+    "source": "backgrounds/Bg 0092 00110.png",
+    "name_zh": "海边店铺",
+    "variant": "day"
+  },
+  "tree_canopy_day": {
+    "source": "backgrounds/Bg 0095 00110.png",
+    "name_zh": "树荫",
+    "variant": "day"
+  },
+  "tree_canopy_evening": {
+    "source": "backgrounds/Bg 0095 00120.png",
+    "name_zh": "树荫",
+    "variant": "evening"
+  },
+  "tree_canopy_rain": {
+    "source": "backgrounds/Bg 0095 00410.png",
+    "name_zh": "树荫",
+    "variant": "rain"
+  },
+  "cherry_blossom_sky": {
+    "source": "backgrounds/Bg 0095 01110.png",
+    "name_zh": "樱花树荫",
+    "variant": "cherry_blossom"
+  },
+  "ramen_restaurant": {
+    "source": "backgrounds/Bg 0097 00100.png",
+    "name_zh": "拉面店",
+    "variant": "interior"
+  },
+  "library_lounge": {
+    "source": "backgrounds/Bg 0098 00000.png",
+    "name_zh": "图书休息室",
+    "variant": "interior"
+  },
+  "convenience_store_exterior": {
+    "source": "backgrounds/Bg 0099 00111.png",
+    "name_zh": "便利店外",
+    "variant": "day"
+  },
+  "shopping_mall_interior": {
+    "source": "backgrounds/Bg 0101 00000.png",
+    "name_zh": "商场内部",
+    "variant": "interior"
+  },
+  "gymnasium_day": {
+    "source": "backgrounds/Bg 0103 00110.png",
+    "name_zh": "体育馆",
+    "variant": "day"
+  },
+  "podium_stage": {
+    "source": "backgrounds/Bg 0104 00110.png",
+    "name_zh": "颁奖舞台",
+    "variant": "day"
+  },
+  "decorated_podium_stage": {
+    "source": "backgrounds/Bg 0104 00132.png",
+    "name_zh": "颁奖舞台",
+    "variant": "decorated"
+  },
+  "arena_entrance_day": {
+    "source": "backgrounds/Bg 0105 00111.png",
+    "name_zh": "会场入口",
+    "variant": "day"
+  },
+  "arena_entrance_evening": {
+    "source": "backgrounds/Bg 0105 00121.png",
+    "name_zh": "会场入口",
+    "variant": "evening"
+  },
+  "arena_entrance_rain": {
+    "source": "backgrounds/Bg 0105 00411.png",
+    "name_zh": "会场入口",
+    "variant": "rain"
+  },
+  "stage_lights": {
+    "source": "backgrounds/Bg 0106 00000.png",
+    "name_zh": "舞台灯光",
+    "variant": "interior"
+  },
+  "dirt_track_straight_day": {
+    "source": "backgrounds/Bg 0110 00110.png",
+    "name_zh": "泥地直道",
+    "variant": "day"
+  },
+  "dirt_track_straight_evening": {
+    "source": "backgrounds/Bg 0110 00120.png",
+    "name_zh": "泥地直道",
+    "variant": "evening"
+  },
+  "dirt_track_straight_night": {
+    "source": "backgrounds/Bg 0110 00130.png",
+    "name_zh": "泥地直道",
+    "variant": "night"
+  },
+  "dirt_track_straight_rain": {
+    "source": "backgrounds/Bg 0110 00410.png",
+    "name_zh": "泥地直道",
+    "variant": "rain"
+  },
+  "viewpoint_park_day": {
+    "source": "backgrounds/Bg 0111 00110.png",
+    "name_zh": "眺望公园",
+    "variant": "day"
+  },
+  "viewpoint_park_evening": {
+    "source": "backgrounds/Bg 0111 00120.png",
+    "name_zh": "眺望公园",
+    "variant": "evening"
+  },
+  "viewpoint_park_night": {
+    "source": "backgrounds/Bg 0111 00130.png",
+    "name_zh": "眺望公园",
+    "variant": "night"
+  },
+  "viewpoint_park_twilight": {
+    "source": "backgrounds/Bg 0111 00150.png",
+    "name_zh": "眺望公园",
+    "variant": "twilight"
+  },
+  "grassland_hills_day": {
+    "source": "backgrounds/Bg 0112 00110.png",
+    "name_zh": "丘陵草地",
+    "variant": "day"
+  },
+  "grassland_hills_rain": {
+    "source": "backgrounds/Bg 0112 00410.png",
+    "name_zh": "丘陵草地",
+    "variant": "rain"
+  },
+  "rocky_wilderness_day": {
+    "source": "backgrounds/Bg 0113 00110.png",
+    "name_zh": "岩石荒野",
+    "variant": "day"
+  },
+  "rocky_wilderness_rain": {
+    "source": "backgrounds/Bg 0113 00410.png",
+    "name_zh": "岩石荒野",
+    "variant": "rain"
+  },
+  "racecourse_building_lawn_day": {
+    "source": "backgrounds/Bg 0114 00111.png",
+    "name_zh": "赛马场建筑草坪",
+    "variant": "day"
+  },
+  "racecourse_building_lawn_evening": {
+    "source": "backgrounds/Bg 0114 00120.png",
+    "name_zh": "赛马场建筑草坪",
+    "variant": "evening"
+  },
+  "racecourse_building_lawn_night": {
+    "source": "backgrounds/Bg 0114 00131.png",
+    "name_zh": "赛马场建筑草坪",
+    "variant": "night"
+  },
+  "racecourse_building_lawn_rain": {
+    "source": "backgrounds/Bg 0114 00411.png",
+    "name_zh": "赛马场建筑草坪",
+    "variant": "rain"
+  },
+  "academy_courtyard_fountain_day": {
+    "source": "backgrounds/Bg 0115 00110.png",
+    "name_zh": "学院喷泉庭院",
+    "variant": "day"
+  },
+  "academy_courtyard_fountain_evening": {
+    "source": "backgrounds/Bg 0115 00120.png",
+    "name_zh": "学院喷泉庭院",
+    "variant": "evening"
+  },
+  "station_concourse_day": {
+    "source": "backgrounds/Bg 0116 00111.png",
+    "name_zh": "车站广场",
+    "variant": "day"
+  },
+  "station_concourse_evening": {
+    "source": "backgrounds/Bg 0116 00121.png",
+    "name_zh": "车站广场",
+    "variant": "evening"
+  },
+  "station_concourse_rain": {
+    "source": "backgrounds/Bg 0116 00411.png",
+    "name_zh": "车站广场",
+    "variant": "rain"
+  },
+  "under_bridge_day": {
+    "source": "backgrounds/Bg 0119 00110.png",
+    "name_zh": "桥下河岸",
+    "variant": "day"
+  },
+  "under_bridge_evening": {
+    "source": "backgrounds/Bg 0119 00120.png",
+    "name_zh": "桥下河岸",
+    "variant": "evening"
+  },
+  "under_bridge_night": {
+    "source": "backgrounds/Bg 0119 00130.png",
+    "name_zh": "桥下河岸",
+    "variant": "night"
+  },
+  "under_bridge_twilight": {
+    "source": "backgrounds/Bg 0119 00150.png",
+    "name_zh": "桥下河岸",
+    "variant": "twilight"
+  },
+  "under_bridge_rain": {
+    "source": "backgrounds/Bg 0119 00410.png",
+    "name_zh": "桥下河岸",
+    "variant": "rain"
+  },
+  "concert_stage_night": {
+    "source": "backgrounds/Bg 0120 00131.png",
+    "name_zh": "演唱会舞台",
+    "variant": "night"
+  },
+  "hospital_room_day": {
+    "source": "backgrounds/Bg 0121 00110.png",
+    "name_zh": "医院病房",
+    "variant": "day"
+  },
+  "campus_road_day": {
+    "source": "backgrounds/Bg 0122 00110.png",
+    "name_zh": "校园道路",
+    "variant": "day"
+  },
+  "forest_stream_day": {
+    "source": "backgrounds/Bg 0123 00110.png",
+    "name_zh": "森林溪流",
+    "variant": "day"
+  },
+  "suburban_house_cherry_blossom_day": {
+    "source": "backgrounds/Bg 0124 01110.png",
+    "name_zh": "樱花住宅街",
+    "variant": "day"
+  },
+  "suburban_house_day": {
+    "source": "backgrounds/Bg 0124 02110.png",
+    "name_zh": "住宅街",
+    "variant": "day"
+  },
+  "suburban_house_autumn": {
+    "source": "backgrounds/Bg 0124 03110.png",
+    "name_zh": "住宅街",
+    "variant": "autumn"
+  },
+  "suburban_house_winter": {
+    "source": "backgrounds/Bg 0124 04110.png",
+    "name_zh": "住宅街",
+    "variant": "winter"
+  },
+  "pink_cafe_interior": {
+    "source": "backgrounds/Bg 0125 00111.png",
+    "name_zh": "粉色咖啡厅",
+    "variant": "interior"
+  },
+  "wedding_chapel_exterior_day": {
+    "source": "backgrounds/Bg 0126 00110.png",
+    "name_zh": "教堂外",
+    "variant": "day"
+  },
+  "wedding_chapel_exterior_evening": {
+    "source": "backgrounds/Bg 0126 00120.png",
+    "name_zh": "教堂外",
+    "variant": "evening"
+  },
+  "wedding_chapel_interior_day": {
+    "source": "backgrounds/Bg 0127 00110.png",
+    "name_zh": "教堂内",
+    "variant": "day"
+  },
+  "wedding_chapel_interior_evening": {
+    "source": "backgrounds/Bg 0127 00120.png",
+    "name_zh": "教堂内",
+    "variant": "evening"
+  },
+  "jungle_path_day": {
+    "source": "backgrounds/Bg 0128 00110.png",
+    "name_zh": "丛林小路",
+    "variant": "day"
+  },
+  "snowy_forest_path": {
+    "source": "backgrounds/Bg 0128 00310.png",
+    "name_zh": "雪中森林小路",
+    "variant": "snow"
+  },
+  "suspension_bridge_day": {
+    "source": "backgrounds/Bg 0129 00110.png",
+    "name_zh": "吊桥",
+    "variant": "day"
+  },
+  "photo_studio": {
+    "source": "backgrounds/Bg 0130 00000.png",
+    "name_zh": "摄影棚",
+    "variant": "interior"
+  },
+  "water_park_day": {
+    "source": "backgrounds/Bg 0131 00110.png",
+    "name_zh": "水上乐园",
+    "variant": "day"
+  },
+  "water_park_night": {
+    "source": "backgrounds/Bg 0131 00130.png",
+    "name_zh": "水上乐园",
+    "variant": "night"
+  },
+  "disco_stage": {
+    "source": "backgrounds/Bg 0132 00001.png",
+    "name_zh": "迪斯科舞台",
+    "variant": "interior"
+  },
+  "outdoor_event_stage_day": {
+    "source": "backgrounds/Bg 0133 00110.png",
+    "name_zh": "户外活动舞台",
+    "variant": "day"
+  },
+  "outdoor_event_stage_people": {
+    "source": "backgrounds/Bg 0133 00112.png",
+    "name_zh": "户外活动舞台",
+    "variant": "people"
+  },
+  "public_screen_plaza_day": {
+    "source": "backgrounds/Bg 0134 00111.png",
+    "name_zh": "广场大屏幕",
+    "variant": "day"
+  },
+  "public_screen_plaza_evening": {
+    "source": "backgrounds/Bg 0134 00120.png",
+    "name_zh": "广场大屏幕",
+    "variant": "evening"
+  },
+  "hotel_lobby": {
+    "source": "backgrounds/Bg 0135 00111.png",
+    "name_zh": "酒店大厅",
+    "variant": "interior"
+  },
+  "banquet_hall_day": {
+    "source": "backgrounds/Bg 0136 00110.png",
+    "name_zh": "宴会厅",
+    "variant": "day"
+  },
+  "banquet_hall_people": {
+    "source": "backgrounds/Bg 0136 00111.png",
+    "name_zh": "宴会厅",
+    "variant": "people"
+  },
+  "meeting_room_day": {
+    "source": "backgrounds/Bg 0137 00110.png",
+    "name_zh": "会议室",
+    "variant": "day"
+  },
+  "office_corridor_day": {
+    "source": "backgrounds/Bg 0138 00110.png",
+    "name_zh": "办公楼走廊",
+    "variant": "day"
+  },
+  "professional_kitchen_day": {
+    "source": "backgrounds/Bg 0139 00110.png",
+    "name_zh": "专业厨房",
+    "variant": "day"
+  },
+  "magic_lab_day": {
+    "source": "backgrounds/Bg 0140 00110.png",
+    "name_zh": "魔法实验室",
+    "variant": "day"
+  },
+  "magic_lab_night": {
+    "source": "backgrounds/Bg 0140 00130.png",
+    "name_zh": "魔法实验室",
+    "variant": "night"
+  },
+  "fortune_teller_room_day": {
+    "source": "backgrounds/Bg 0141 00110.png",
+    "name_zh": "占卜房间",
+    "variant": "day"
+  },
+  "fortune_teller_room_night": {
+    "source": "backgrounds/Bg 0141 00130.png",
+    "name_zh": "占卜房间",
+    "variant": "night"
+  },
+  "cosmetics_store": {
+    "source": "backgrounds/Bg 0142 00111.png",
+    "name_zh": "化妆品店",
+    "variant": "interior"
+  },
+  "velvet_stage": {
+    "source": "backgrounds/Bg 0143 00110.png",
+    "name_zh": "紫色舞台房间",
+    "variant": "interior"
+  },
+  "underwater_abstract": {
+    "source": "backgrounds/Bg 0144 00000.png",
+    "name_zh": "水下抽象背景",
+    "variant": "abstract"
+  },
+  "souvenir_shop": {
+    "source": "backgrounds/Bg 0145 00111.png",
+    "name_zh": "纪念品店",
+    "variant": "interior"
+  },
+  "fantasy_street_night": {
+    "source": "backgrounds/Bg 0146 00130.png",
+    "name_zh": "幻想街道",
+    "variant": "night"
+  },
+  "fantasy_town_square": {
+    "source": "backgrounds/Bg 0147 00000.png",
+    "name_zh": "幻想城镇广场",
+    "variant": "night"
+  },
+  "classic_cafe": {
+    "source": "backgrounds/Bg 0148 00110.png",
+    "name_zh": "古典咖啡馆",
+    "variant": "interior"
+  },
+  "bookstore_day": {
+    "source": "backgrounds/Bg 0149 00111.png",
+    "name_zh": "书店",
+    "variant": "day"
+  },
+  "night_festival_square": {
+    "source": "backgrounds/Bg 0150 00130.png",
+    "name_zh": "夜祭广场",
+    "variant": "night"
+  },
+  "forest_campfire_night": {
+    "source": "backgrounds/Bg 0152 00130.png",
+    "name_zh": "森林篝火",
+    "variant": "night"
+  },
+  "indoor_pool_lobby": {
+    "source": "backgrounds/Bg 0153 00001.png",
+    "name_zh": "室内泳池大厅",
+    "variant": "interior"
+  },
+  "western_lounge_day": {
+    "source": "backgrounds/Bg 0154 00110.png",
+    "name_zh": "西式休息室",
+    "variant": "day"
+  },
+  "log_cabin_lounge": {
+    "source": "backgrounds/Bg 0156 00000.png",
+    "name_zh": "木屋休息室",
+    "variant": "interior"
+  },
+  "snow_lodge_exterior": {
+    "source": "backgrounds/Bg 0157 06310.png",
+    "name_zh": "雪中木屋外",
+    "variant": "snow"
+  },
+  "small_study_day": {
+    "source": "backgrounds/Bg 0158 00110.png",
+    "name_zh": "小书房",
+    "variant": "day"
+  },
+  "japanese_living_room_day": {
+    "source": "backgrounds/Bg 0159 00110.png",
+    "name_zh": "日式起居室",
+    "variant": "day"
+  },
+  "ryokan_hall_day": {
+    "source": "backgrounds/Bg 0160 00111.png",
+    "name_zh": "旅馆大厅",
+    "variant": "day"
+  },
+  "ryokan_hall_people": {
+    "source": "backgrounds/Bg 0160 00112.png",
+    "name_zh": "旅馆大厅",
+    "variant": "people"
+  },
+  "ryokan_guest_room": {
+    "source": "backgrounds/Bg 0161 00000.png",
+    "name_zh": "旅馆客房",
+    "variant": "interior"
+  },
+  "dojo_day": {
+    "source": "backgrounds/Bg 0162 00110.png",
+    "name_zh": "道场",
+    "variant": "day"
+  },
+  "food_truck_day": {
+    "source": "backgrounds/Bg 0163 00111.png",
+    "name_zh": "餐车",
+    "variant": "day"
+  },
+  "theater_stage": {
+    "source": "backgrounds/Bg 0164 00001.png",
+    "name_zh": "剧场舞台",
+    "variant": "interior"
+  },
+  "waterfront_racecourse_day": {
+    "source": "backgrounds/Bg 0165 00111.png",
+    "name_zh": "水边赛马场",
+    "variant": "day"
+  },
+  "waterfront_racecourse_rain": {
+    "source": "backgrounds/Bg 0165 00411.png",
+    "name_zh": "水边赛马场",
+    "variant": "rain"
+  },
+  "modern_hallway_day": {
+    "source": "backgrounds/Bg 0166 00110.png",
+    "name_zh": "现代走廊",
+    "variant": "day"
+  },
+  "general_store": {
+    "source": "backgrounds/Bg 0167 00001.png",
+    "name_zh": "杂货店",
+    "variant": "interior"
+  },
+  "sportswear_store": {
+    "source": "backgrounds/Bg 0168 00001.png",
+    "name_zh": "运动服装店",
+    "variant": "interior"
+  },
+  "party_hall_night": {
+    "source": "backgrounds/Bg 0169 00131.png",
+    "name_zh": "派对大厅",
+    "variant": "night"
+  },
+  "night_lounge_balcony": {
+    "source": "backgrounds/Bg 0170 00131.png",
+    "name_zh": "夜间露台休息区",
+    "variant": "night"
+  },
+  "presentation_room": {
+    "source": "backgrounds/Bg 0171 00000.png",
+    "name_zh": "发表会房间",
+    "variant": "interior"
+  },
+  "billiards_room": {
+    "source": "backgrounds/Bg 0172 00001.png",
+    "name_zh": "台球室",
+    "variant": "interior"
+  },
+  "amusement_plaza_day": {
+    "source": "backgrounds/Bg 0173 00111.png",
+    "name_zh": "游乐园广场",
+    "variant": "day"
+  },
+  "flower_field_day": {
+    "source": "backgrounds/Bg 0175 00110.png",
+    "name_zh": "花田",
+    "variant": "day"
+  },
+  "martial_arts_hall_day": {
+    "source": "backgrounds/Bg 0176 00110.png",
+    "name_zh": "武道馆",
+    "variant": "day"
+  },
+  "observation_deck_day": {
+    "source": "backgrounds/Bg 0177 00111.png",
+    "name_zh": "观景台",
+    "variant": "day"
+  },
+  "observation_deck_night": {
+    "source": "backgrounds/Bg 0177 00131.png",
+    "name_zh": "观景台",
+    "variant": "night"
+  },
+  "starfield": {
+    "source": "backgrounds/Bg 0178 00000.png",
+    "name_zh": "星空",
+    "variant": "abstract"
+  },
+  "hotel_corridor": {
+    "source": "backgrounds/Bg 0180 00000.png",
+    "name_zh": "酒店走廊",
+    "variant": "interior"
+  },
+  "open_field_day": {
+    "source": "backgrounds/Bg 0181 00110.png",
+    "name_zh": "开阔草地",
+    "variant": "day"
+  },
+  "ceremony_entrance_day": {
+    "source": "backgrounds/Bg 0182 00112.png",
+    "name_zh": "仪式入口",
+    "variant": "day"
+  },
+  "ceremony_entrance_rain": {
+    "source": "backgrounds/Bg 0182 00412.png",
+    "name_zh": "仪式入口",
+    "variant": "rain"
+  },
+  "hotel_room": {
+    "source": "backgrounds/Bg 0183 00000.png",
+    "name_zh": "酒店房间",
+    "variant": "interior"
+  },
+  "salon_lounge": {
+    "source": "backgrounds/Bg 0186 00000.png",
+    "name_zh": "沙龙休息室",
+    "variant": "interior"
+  },
+  "fitness_gym": {
+    "source": "backgrounds/Bg 0187 00000.png",
+    "name_zh": "健身房",
+    "variant": "interior"
+  },
+  "academy_courtyard_day_alt": {
+    "source": "backgrounds/Bg 0187 00001.png",
+    "name_zh": "学院庭院",
+    "variant": "day_alt"
+  },
+  "dance_studio_day": {
+    "source": "backgrounds/Bg 0187 00002.png",
+    "name_zh": "舞蹈教室",
+    "variant": "day"
+  },
+  "outdoor_terrace_stage_day": {
+    "source": "backgrounds/Bg 0187 00003.png",
+    "name_zh": "户外露台舞台",
+    "variant": "day"
+  },
+  "garden_house_day": {
+    "source": "backgrounds/Bg 0188 00110.png",
+    "name_zh": "花园小屋",
+    "variant": "day"
+  },
+  "treehouse_day": {
+    "source": "backgrounds/Bg 0189 00111.png",
+    "name_zh": "树屋",
+    "variant": "day"
+  },
+  "treehouse_night": {
+    "source": "backgrounds/Bg 0189 00130.png",
+    "name_zh": "树屋",
+    "variant": "night"
+  },
+  "forest_cafe_day": {
+    "source": "backgrounds/Bg 0190 00111.png",
+    "name_zh": "森林咖啡亭",
+    "variant": "day"
+  },
+  "forest_cafe_night": {
+    "source": "backgrounds/Bg 0190 00131.png",
+    "name_zh": "森林咖啡亭",
+    "variant": "night"
+  },
+  "covered_shopping_street_day": {
+    "source": "backgrounds/Bg 0191 00111.png",
+    "name_zh": "拱廊商店街",
+    "variant": "day"
+  },
+  "beach_carnival_day": {
+    "source": "backgrounds/Bg 0192 00111.png",
+    "name_zh": "海滩嘉年华",
+    "variant": "day"
+  },
+  "beach_carnival_evening": {
+    "source": "backgrounds/Bg 0192 00120.png",
+    "name_zh": "海滩嘉年华",
+    "variant": "evening"
+  },
+  "seaside_cliff_day": {
+    "source": "backgrounds/Bg 0193 00110.png",
+    "name_zh": "海边山崖",
+    "variant": "day"
+  },
+  "control_room": {
+    "source": "backgrounds/Bg 0194 00000.png",
+    "name_zh": "控制室",
+    "variant": "interior"
+  },
+  "steampunk_plaza_day": {
+    "source": "backgrounds/Bg 0195 00111.png",
+    "name_zh": "蒸汽朋克广场",
+    "variant": "day"
+  },
+  "steampunk_plaza_rain": {
+    "source": "backgrounds/Bg 0196 00111.png",
+    "name_zh": "蒸汽朋克广场",
+    "variant": "rain"
+  },
+  "mechanic_workshop": {
+    "source": "backgrounds/Bg 0197 00110.png",
+    "name_zh": "机械工坊",
+    "variant": "interior"
+  },
+  "steampunk_bar": {
+    "source": "backgrounds/Bg 0198 00111.png",
+    "name_zh": "蒸汽朋克酒吧",
+    "variant": "interior"
+  },
+  "racecourse_crowd_close": {
+    "source": "backgrounds/Bg 0201 00110.png",
+    "name_zh": "赛马场观众席近景",
+    "variant": "day"
+  },
+  "old_storage_room": {
+    "source": "backgrounds/Bg 0203 00110.png",
+    "name_zh": "旧仓库房间",
+    "variant": "interior"
+  },
+  "racecourse_concourse_day": {
+    "source": "backgrounds/Bg 0204 00111.png",
+    "name_zh": "赛马场看台通道",
+    "variant": "day"
+  },
+  "racecourse_concourse_rain": {
+    "source": "backgrounds/Bg 0204 00411.png",
+    "name_zh": "赛马场看台通道",
+    "variant": "rain"
+  },
+  "executive_office_day": {
+    "source": "backgrounds/Bg 0205 00110.png",
+    "name_zh": "办公室",
+    "variant": "day"
+  },
+  "autumn_plaza_day": {
+    "source": "backgrounds/Bg 0206 00110.png",
+    "name_zh": "秋日广场",
+    "variant": "day"
+  },
+  "autumn_plaza_night": {
+    "source": "backgrounds/Bg 0206 00130.png",
+    "name_zh": "秋日广场",
+    "variant": "night"
+  },
+  "large_tatami_hall": {
+    "source": "backgrounds/Bg 0207 00000.png",
+    "name_zh": "大型榻榻米大厅",
+    "variant": "interior"
+  },
+  "clinic_corridor": {
+    "source": "backgrounds/Bg 0208 00000.png",
+    "name_zh": "诊所走廊",
+    "variant": "interior"
+  },
+  "narrow_alley_day": {
+    "source": "backgrounds/Bg 0209 00110.png",
+    "name_zh": "狭窄街巷",
+    "variant": "day"
+  },
+  "seaside_road_day": {
+    "source": "backgrounds/Bg 0210 00111.png",
+    "name_zh": "海边道路",
+    "variant": "day"
+  },
+  "seaside_road_rain": {
+    "source": "backgrounds/Bg 0210 00410.png",
+    "name_zh": "海边道路",
+    "variant": "rain"
+  },
+  "christmas_station_square_day": {
+    "source": "backgrounds/Bg 0211 06112.png",
+    "name_zh": "圣诞车站广场",
+    "variant": "day"
+  },
+  "christmas_station_square_night": {
+    "source": "backgrounds/Bg 0211 06132.png",
+    "name_zh": "圣诞车站广场",
+    "variant": "night"
+  },
+  "green_bridge_night": {
+    "source": "backgrounds/Bg 0213 00130.png",
+    "name_zh": "绿色高架桥",
+    "variant": "night"
+  },
+  "old_shrine_day": {
+    "source": "backgrounds/Bg 0214 00110.png",
+    "name_zh": "古旧神社",
+    "variant": "day"
+  },
+  "old_shrine_festival_day": {
+    "source": "backgrounds/Bg 0215 00112.png",
+    "name_zh": "古旧神社",
+    "variant": "festival_day"
+  },
+  "old_shrine_festival_night": {
+    "source": "backgrounds/Bg 0215 00131.png",
+    "name_zh": "古旧神社",
+    "variant": "festival_night"
+  },
+  "illumination_gate_night": {
+    "source": "backgrounds/Bg 0216 00133.png",
+    "name_zh": "灯饰入口",
+    "variant": "night"
+  },
+  "night_plaza_lights": {
+    "source": "backgrounds/Bg 0217 00132.png",
+    "name_zh": "夜间灯光广场",
+    "variant": "night"
+  },
+  "cave_beach_day": {
+    "source": "backgrounds/Bg 0301 00110.png",
+    "name_zh": "洞穴海滩",
+    "variant": "day"
+  },
+  "cave_beach_evening": {
+    "source": "backgrounds/Bg 0301 00120.png",
+    "name_zh": "洞穴海滩",
+    "variant": "evening"
+  },
+  "cave_beach_night": {
+    "source": "backgrounds/Bg 0301 00130.png",
+    "name_zh": "洞穴海滩",
+    "variant": "night"
   }
 }
