@@ -8,6 +8,7 @@ dependencies = [
     "httpx>=0.28.1",
     "pillow>=12.2.0",
     "pytest>=9.0.3",
+    "umamusume-web-crawler",
 ]
 
 [project.scripts]
@@ -19,3 +20,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["my_tts*"]
+
+[tool.uv.sources]
+umamusume-web-crawler = { git = "https://github.com/quantumxiaol/umamusume-web-crawler.git" }
