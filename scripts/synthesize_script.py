@@ -109,7 +109,7 @@ def synthesize_line(
         return
 
     character_dir = resolve_character_dir(characters_root=characters_root, speaker_id=speaker_id)
-    reference_audio = resolve_existing(character_dir / "reference.mp3", label=f"{speaker_id} reference audio")
+    reference_audio = resolve_reference_audio(character_dir=character_dir, speaker_id=speaker_id)
     reference_text = resolve_existing(character_dir / "reference_jp.txt", label=f"{speaker_id} reference text").read_text(
         encoding="utf-8"
     ).strip()
@@ -146,6 +146,14 @@ def resolve_character_dir(*, characters_root: Path, speaker_id: str) -> Path:
     if not character_dir.exists():
         raise SynthesisError(f"character directory not found: {character_dir}")
     return character_dir
+
+
+def resolve_reference_audio(*, character_dir: Path, speaker_id: str) -> Path:
+    for filename in ("reference.mp3", "reference.wav"):
+        path = character_dir / filename
+        if path.exists():
+            return path
+    raise SynthesisError(f"{speaker_id} reference audio not found: {character_dir / 'reference.mp3'} or reference.wav")
 
 
 def resolve_existing(path: Path, *, label: str) -> Path:

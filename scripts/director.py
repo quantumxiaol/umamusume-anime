@@ -394,8 +394,10 @@ def default_speaker_label(line: dict[str, Any]) -> str:
     if str(line.get("type") or "") == "narration":
         return "旁白"
     speaker_id = str(line.get("speakerId") or "")
-    if speaker_id == "trainer":
+    if speaker_id.lower() == "trainer":
         return "训练员"
+    if speaker_id.lower() in {"voice-over", "voice_over", "narrator"}:
+        return "旁白"
     return ""
 
 
