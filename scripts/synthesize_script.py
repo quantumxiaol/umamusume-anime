@@ -45,6 +45,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         help="Only synthesize lines for this speakerId. Can be passed more than once.",
     )
+    parser.add_argument(
+        "--line-id",
+        action="append",
+        help="Only synthesize lines with this id. Can be passed more than once.",
+    )
     parser.add_argument("--overwrite", action="store_true", help="Regenerate existing audio files.")
     parser.add_argument("--max-new-tokens", type=int)
     parser.add_argument("--do-sample", action="store_true")
@@ -66,6 +71,9 @@ def synthesize_script(args: argparse.Namespace) -> None:
     if args.speaker_id:
         speaker_ids = set(args.speaker_id)
         targets = [line for line in targets if str(line.get("speakerId") or "") in speaker_ids]
+    if args.line_id:
+        line_ids = set(args.line_id)
+        targets = [line for line in targets if str(line.get("id") or "") in line_ids]
     if not targets:
         print("no audio targets found")
         return
