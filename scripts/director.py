@@ -57,6 +57,12 @@ def build_parser() -> argparse.ArgumentParser:
     build.add_argument("--characters-root", default=str(DEFAULT_CHARACTERS_ROOT), help="Character assets root.")
     build.add_argument("--width", type=int, default=DEFAULT_CANVAS_SIZE[0], help="Output frame width.")
     build.add_argument("--height", type=int, default=DEFAULT_CANVAS_SIZE[1], help="Output frame height.")
+    build.add_argument(
+        "--line-gap-ms",
+        type=int,
+        default=0,
+        help="Silent subtitle-free gap to insert between script lines, in milliseconds.",
+    )
     build.add_argument("--overwrite", action="store_true", help="Overwrite generated images and copied audio.")
     build.add_argument(
         "--no-auto-focus",
@@ -85,6 +91,8 @@ def build_project(args: argparse.Namespace) -> None:
     lines = flatten_lines(script)
     if not lines:
         raise DirectorError("script has no lines")
+    if args.line_gap_ms < 0:
+        raise DirectorError("--line-gap-ms must be >= 0")
     canvas_size = (args.width, args.height)
 
     project_root = Path(args.content_root) / project
@@ -131,10 +139,11 @@ def build_project(args: argparse.Namespace) -> None:
 
         start_ms = current_ms
         end_ms = current_ms + duration_ms
+        next_start_ms = end_ms + (args.line_gap_ms if index < len(lines) else 0)
         timeline["elements"].append(
             {
                 "startMs": start_ms,
-                "endMs": end_ms,
+                "endMs": next_start_ms,
                 "imageUrl": line_id,
                 "enterTransition": "none",
                 "exitTransition": "none",
@@ -162,7 +171,7 @@ def build_project(args: argparse.Namespace) -> None:
                 "durationMs": duration_ms,
             }
         )
-        current_ms = end_ms
+        current_ms = next_start_ms
 
     write_json(project_root / "timeline.json", timeline)
     write_json(project_root / "descriptor.json", descriptor)
