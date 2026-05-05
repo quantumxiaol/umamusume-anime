@@ -13,7 +13,7 @@ from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import httpx
 
@@ -164,7 +164,8 @@ class Qwen3TTSClient:
         self,
         *,
         ref_audio_path: Path,
-        text_file: Path,
+        text_file: Path | None = None,
+        texts: Sequence[str] | None = None,
         ref_text: str | None = None,
         ref_text_file: Path | None = None,
         language: str = "Auto",
@@ -172,8 +173,13 @@ class Qwen3TTSClient:
         x_vector_only_mode: bool = False,
         **gen_kwargs: Any,
     ) -> dict[str, Any]:
+        if text_file is not None and texts:
+            raise ValueError("Provide either text_file or texts, not both.")
+        if text_file is None and not texts:
+            raise ValueError("Either text_file or texts must be provided.")
+
         with ExitStack() as stack:
-            data: dict[str, str] = {
+            data: dict[str, Any] = {
                 "language": language,
                 "x_vector_only_mode": _form_value(x_vector_only_mode),
             }
@@ -183,12 +189,15 @@ class Qwen3TTSClient:
                     stack.enter_context(ref_audio_path.open("rb")),
                     "audio/wav",
                 ),
-                "text_file": (
+            }
+            if text_file is not None:
+                files["text_file"] = (
                     text_file.name,
                     stack.enter_context(text_file.open("rb")),
                     "text/plain",
-                ),
-            }
+                )
+            if texts:
+                data["text"] = list(texts)
             if ref_text is not None:
                 data["ref_text"] = ref_text
             if output_prefix is not None:
@@ -312,12 +321,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     qwen_voice_clone_batch = qwen_subparsers.add_parser(
         "voice-clone-batch-file",
+        aliases=["voice-clone-batch"],
         help="Call POST /qwen3tts/tts/voice_clone_batch_file.",
     )
     add_qwen_common_args(qwen_voice_clone_batch)
     add_qwen_generation_args(qwen_voice_clone_batch)
     qwen_voice_clone_batch.add_argument("--ref-audio", required=True, help="Reference audio path.")
-    qwen_voice_clone_batch.add_argument("--text-file", required=True, help="Input text file, one line per sample.")
+    qwen_voice_clone_batch.add_argument("--text", action="append", help="Inline synthesis text. Can be repeated.")
+    qwen_voice_clone_batch.add_argument("--text-file", help="Input text file, one line per sample.")
     qwen_voice_clone_batch.add_argument("--ref-text", help="Inline reference transcript for the prompt audio.")
     qwen_voice_clone_batch.add_argument("--ref-text-file", help="Reference transcript file for the prompt audio.")
     qwen_voice_clone_batch.add_argument("--language", default="Auto", help="Qwen language form value.")
@@ -415,7 +426,14 @@ def add_qwen_common_args(parser: argparse.ArgumentParser) -> None:
 
 def add_qwen_generation_args(parser: argparse.ArgumentParser, prefix: str = "") -> None:
     parser.add_argument(f"--{prefix}max-new-tokens", type=int, dest=f"{prefix_to_dest(prefix)}max_new_tokens")
-    parser.add_argument(f"--{prefix}do-sample", action="store_true", dest=f"{prefix_to_dest(prefix)}do_sample")
+    parser.add_argument(
+        f"--{prefix}do-sample",
+        nargs="?",
+        const="true",
+        default=None,
+        type=parse_bool,
+        dest=f"{prefix_to_dest(prefix)}do_sample",
+    )
     parser.add_argument(f"--{prefix}top-k", type=int, dest=f"{prefix_to_dest(prefix)}top_k")
     parser.add_argument(f"--{prefix}top-p", type=float, dest=f"{prefix_to_dest(prefix)}top_p")
     parser.add_argument(f"--{prefix}temperature", type=float, dest=f"{prefix_to_dest(prefix)}temperature")
@@ -431,6 +449,17 @@ def add_qwen_generation_args(parser: argparse.ArgumentParser, prefix: str = "") 
 
 def prefix_to_dest(prefix: str) -> str:
     return prefix.replace("-", "_")
+
+
+def parse_bool(value: str | bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "y", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "n", "off"}:
+        return False
+    raise argparse.ArgumentTypeError(f"expected boolean value, got {value!r}")
 
 
 def _form_value(value: Any) -> str:
@@ -504,7 +533,8 @@ def cmd_qwen(args: argparse.Namespace) -> int:
             emit_json(with_downloaded_field(payload, downloaded))
             return 0
 
-        if args.qwen_command == "voice-clone-batch-file":
+        if args.qwen_command in {"voice-clone-batch-file", "voice-clone-batch"}:
+            validate_text_inputs(args.text, args.text_file, field_name="text")
             validate_reference_text_inputs(
                 ref_text=args.ref_text,
                 ref_text_file=args.ref_text_file,
@@ -512,7 +542,8 @@ def cmd_qwen(args: argparse.Namespace) -> int:
             )
             payload = client.voice_clone_batch_file(
                 ref_audio_path=resolve_existing_file(args.ref_audio, label="ref audio"),
-                text_file=resolve_existing_file(args.text_file, label="text file"),
+                text_file=resolve_optional_file(args.text_file),
+                texts=args.text,
                 ref_text=args.ref_text,
                 ref_text_file=resolve_optional_file(args.ref_text_file),
                 language=args.language,
@@ -637,9 +668,22 @@ def resolve_optional_file(path_value: str | None) -> Path | None:
 
 def extract_qwen_gen_kwargs(args: argparse.Namespace, prefix: str = "") -> dict[str, Any]:
     key_prefix = prefix_to_dest(prefix)
-    return {
+    do_sample = getattr(args, f"{key_prefix}do_sample", None)
+    sampling_keys = (
+        "top_k",
+        "top_p",
+        "temperature",
+        "subtalker_top_k",
+        "subtalker_top_p",
+        "subtalker_temperature",
+    )
+    sampling_enabled = any(getattr(args, f"{key_prefix}{key}", None) is not None for key in sampling_keys)
+    if do_sample is None and sampling_enabled:
+        do_sample = True
+
+    kwargs = {
         "max_new_tokens": getattr(args, f"{key_prefix}max_new_tokens", None),
-        "do_sample": getattr(args, f"{key_prefix}do_sample", None),
+        "do_sample": do_sample,
         "top_k": getattr(args, f"{key_prefix}top_k", None),
         "top_p": getattr(args, f"{key_prefix}top_p", None),
         "temperature": getattr(args, f"{key_prefix}temperature", None),
@@ -648,6 +692,10 @@ def extract_qwen_gen_kwargs(args: argparse.Namespace, prefix: str = "") -> dict[
         "subtalker_top_p": getattr(args, f"{key_prefix}subtalker_top_p", None),
         "subtalker_temperature": getattr(args, f"{key_prefix}subtalker_temperature", None),
     }
+    if do_sample is False:
+        for key in sampling_keys:
+            kwargs[key] = None
+    return kwargs
 
 
 def download_qwen_audio_file(*, client: Qwen3TTSClient, stored: dict[str, Any], destination: Path) -> str:

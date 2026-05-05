@@ -124,14 +124,33 @@ If health times out, tell the user to restart `qwen-tts-server` before sending g
 
 ### 4. Generate TTS
 
+By default, `scripts/synthesize_script.py` uses Qwen3-TTS `voice_clone_batch_file` grouped by `speakerId`.
+Keep batches small so one bad generation does not poison or stall many lines. The script default is `--batch-size 6`;
+use `--no-batch` only when debugging the legacy one-line endpoint.
+
+For stable but still natural generation, explicitly enable sampling. Do not rely on `temperature`/`top-p`/`top-k`
+unless `--do-sample true` is present. If the service logs:
+
+```text
+The following generation flags are not valid and may be ignored: ['temperature', 'top_p', 'top_k']
+```
+
+then the request was treated like `do_sample=false`, so low-temperature sampling probably did not take effect.
+
 Generate missing audio:
 
 ```bash
 uv run python scripts/synthesize_script.py \
   --script draft/endday_final_script.json \
   --timeout 900 \
-  --top-p 0.8 \
-  --temperature 0.7
+  --batch-size 6 \
+  --do-sample true \
+  --temperature 0.6 \
+  --top-p 0.85 \
+  --top-k 20 \
+  --subtalker-temperature 0.6 \
+  --subtalker-top-p 0.85 \
+  --subtalker-top-k 20
 ```
 
 Regenerate one character after reference audio changes:
@@ -142,9 +161,18 @@ uv run python scripts/synthesize_script.py \
   --speaker-id rice_shower \
   --overwrite \
   --timeout 900 \
-  --top-p 0.8 \
-  --temperature 0.7
+  --batch-size 6 \
+  --do-sample true \
+  --temperature 0.6 \
+  --top-p 0.85 \
+  --top-k 20 \
+  --subtalker-temperature 0.6 \
+  --subtalker-top-p 0.85 \
+  --subtalker-top-k 20
 ```
+
+For deterministic generation, use `--do-sample false` and do not pass sampling parameters. The CLI strips
+sampling parameters when `--do-sample false` is explicit, but commands should still avoid mixing them.
 
 Verify every `audio` path exists before running director:
 
