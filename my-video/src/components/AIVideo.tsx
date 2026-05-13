@@ -1,4 +1,3 @@
-import { loadFont } from "@remotion/google-fonts/BreeSerif";
 import { Audio } from "@remotion/media";
 import { AbsoluteFill, Sequence, staticFile } from "remotion";
 import { z } from "zod";
@@ -13,7 +12,7 @@ export const aiVideoSchema = z.object({
   timeline: TimelineSchema.nullable(),
 });
 
-const { fontFamily } = loadFont();
+const titleFontFamily = "Georgia, 'Times New Roman', serif";
 
 export const AIVideo: React.FC<z.infer<typeof aiVideoSchema>> = ({
   contentProject,
@@ -41,7 +40,7 @@ export const AIVideo: React.FC<z.infer<typeof aiVideoSchema>> = ({
               lineHeight: "122px",
               width: "87%",
               color: "black",
-              fontFamily,
+              fontFamily: titleFontFamily,
               textTransform: "uppercase",
               backgroundColor: "yellow",
               paddingTop: 20,
