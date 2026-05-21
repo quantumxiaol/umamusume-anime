@@ -54,6 +54,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--overwrite", action="store_true", help="Regenerate existing audio files.")
     parser.add_argument("--max-new-tokens", type=int)
     parser.add_argument(
+        "--non-streaming-mode",
+        nargs="?",
+        const="true",
+        default=None,
+        type=parse_bool,
+        help="Forward non_streaming_mode to Qwen3-TTS for full-text voice clone generation.",
+    )
+    parser.add_argument(
         "--do-sample",
         nargs="?",
         const="true",
@@ -65,6 +73,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--top-p", type=float)
     parser.add_argument("--temperature", type=float)
     parser.add_argument("--repetition-penalty", type=float)
+    parser.add_argument(
+        "--subtalker-do-sample",
+        nargs="?",
+        const="true",
+        default=None,
+        type=parse_bool,
+        help="Forward subtalker_do_sample to Qwen3-TTS.",
+    )
     parser.add_argument("--subtalker-top-k", type=int)
     parser.add_argument("--subtalker-top-p", type=float)
     parser.add_argument("--subtalker-temperature", type=float)

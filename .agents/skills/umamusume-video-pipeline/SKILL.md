@@ -144,10 +144,12 @@ uv run python scripts/synthesize_script.py \
   --script draft/endday_final_script.json \
   --timeout 900 \
   --batch-size 6 \
+  --non-streaming-mode true \
   --do-sample true \
   --temperature 0.6 \
   --top-p 0.85 \
   --top-k 20 \
+  --subtalker-do-sample true \
   --subtalker-temperature 0.6 \
   --subtalker-top-p 0.85 \
   --subtalker-top-k 20
@@ -162,10 +164,12 @@ uv run python scripts/synthesize_script.py \
   --overwrite \
   --timeout 900 \
   --batch-size 6 \
+  --non-streaming-mode true \
   --do-sample true \
   --temperature 0.6 \
   --top-p 0.85 \
   --top-k 20 \
+  --subtalker-do-sample true \
   --subtalker-temperature 0.6 \
   --subtalker-top-p 0.85 \
   --subtalker-top-k 20

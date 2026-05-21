@@ -1,15 +1,16 @@
 import { makeTransform, scale, translateY } from "@remotion/animation-utils";
-import { loadFont } from "@remotion/google-fonts/BreeSerif";
 import { fitText } from "@remotion/layout-utils";
 import type React from "react";
 import { AbsoluteFill, interpolate, useVideoConfig } from "remotion";
+
+const fontFamily =
+  "'Hiragino Sans', 'Yu Gothic', 'Noto Sans CJK JP', Arial, sans-serif";
 
 export const Word: React.FC<{
   enterProgress: number;
   text: string;
   stroke: boolean;
 }> = ({ enterProgress, text, stroke }) => {
-  const { fontFamily } = loadFont();
   const { width, height } = useVideoConfig();
   const lines = text.split("\n").filter((line) => line.trim().length > 0);
   const desiredFontSize = height * 0.09;

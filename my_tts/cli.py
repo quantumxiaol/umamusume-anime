@@ -427,6 +427,15 @@ def add_qwen_common_args(parser: argparse.ArgumentParser) -> None:
 def add_qwen_generation_args(parser: argparse.ArgumentParser, prefix: str = "") -> None:
     parser.add_argument(f"--{prefix}max-new-tokens", type=int, dest=f"{prefix_to_dest(prefix)}max_new_tokens")
     parser.add_argument(
+        f"--{prefix}non-streaming-mode",
+        nargs="?",
+        const="true",
+        default=None,
+        type=parse_bool,
+        dest=f"{prefix_to_dest(prefix)}non_streaming_mode",
+        help="Forward non_streaming_mode to Qwen3TTS for full-text voice clone generation.",
+    )
+    parser.add_argument(
         f"--{prefix}do-sample",
         nargs="?",
         const="true",
@@ -438,6 +447,15 @@ def add_qwen_generation_args(parser: argparse.ArgumentParser, prefix: str = "") 
     parser.add_argument(f"--{prefix}top-p", type=float, dest=f"{prefix_to_dest(prefix)}top_p")
     parser.add_argument(f"--{prefix}temperature", type=float, dest=f"{prefix_to_dest(prefix)}temperature")
     parser.add_argument(f"--{prefix}repetition-penalty", type=float, dest=f"{prefix_to_dest(prefix)}repetition_penalty")
+    parser.add_argument(
+        f"--{prefix}subtalker-do-sample",
+        nargs="?",
+        const="true",
+        default=None,
+        type=parse_bool,
+        dest=f"{prefix_to_dest(prefix)}subtalker_do_sample",
+        help="Forward subtalker_do_sample to Qwen3TTS.",
+    )
     parser.add_argument(f"--{prefix}subtalker-top-k", type=int, dest=f"{prefix_to_dest(prefix)}subtalker_top_k")
     parser.add_argument(f"--{prefix}subtalker-top-p", type=float, dest=f"{prefix_to_dest(prefix)}subtalker_top_p")
     parser.add_argument(
@@ -669,31 +687,44 @@ def resolve_optional_file(path_value: str | None) -> Path | None:
 def extract_qwen_gen_kwargs(args: argparse.Namespace, prefix: str = "") -> dict[str, Any]:
     key_prefix = prefix_to_dest(prefix)
     do_sample = getattr(args, f"{key_prefix}do_sample", None)
+    subtalker_do_sample = getattr(args, f"{key_prefix}subtalker_do_sample", None)
     sampling_keys = (
         "top_k",
         "top_p",
         "temperature",
+    )
+    subtalker_sampling_keys = (
         "subtalker_top_k",
         "subtalker_top_p",
         "subtalker_temperature",
     )
     sampling_enabled = any(getattr(args, f"{key_prefix}{key}", None) is not None for key in sampling_keys)
+    subtalker_sampling_enabled = any(
+        getattr(args, f"{key_prefix}{key}", None) is not None for key in subtalker_sampling_keys
+    )
     if do_sample is None and sampling_enabled:
         do_sample = True
+    if subtalker_do_sample is None and subtalker_sampling_enabled:
+        subtalker_do_sample = True
 
     kwargs = {
         "max_new_tokens": getattr(args, f"{key_prefix}max_new_tokens", None),
+        "non_streaming_mode": getattr(args, f"{key_prefix}non_streaming_mode", None),
         "do_sample": do_sample,
         "top_k": getattr(args, f"{key_prefix}top_k", None),
         "top_p": getattr(args, f"{key_prefix}top_p", None),
         "temperature": getattr(args, f"{key_prefix}temperature", None),
         "repetition_penalty": getattr(args, f"{key_prefix}repetition_penalty", None),
+        "subtalker_do_sample": subtalker_do_sample,
         "subtalker_top_k": getattr(args, f"{key_prefix}subtalker_top_k", None),
         "subtalker_top_p": getattr(args, f"{key_prefix}subtalker_top_p", None),
         "subtalker_temperature": getattr(args, f"{key_prefix}subtalker_temperature", None),
     }
     if do_sample is False:
         for key in sampling_keys:
+            kwargs[key] = None
+    if subtalker_do_sample is False:
+        for key in subtalker_sampling_keys:
             kwargs[key] = None
     return kwargs
 
