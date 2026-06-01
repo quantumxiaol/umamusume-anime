@@ -11,6 +11,11 @@ dependencies = [
     "umamusume-web-crawler",
 ]
 
+[project.optional-dependencies]
+all = [
+    "roletone",
+]
+
 [project.scripts]
 my-tts = "my_tts.cli:main"
 
@@ -23,3 +28,4 @@ include = ["my_tts*"]
 
 [tool.uv.sources]
 umamusume-web-crawler = { git = "https://github.com/quantumxiaol/umamusume-web-crawler.git" }
+roletone = { path = "./third_party/RoleTone" }

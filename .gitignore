@@ -6,6 +6,12 @@ dist/
 wheels/
 *.egg-info
 .DS_Store
+
+# Local environment and model caches
+.env
+modelsweights/
+third_party/RoleTone/modelsweights/
+
 # Virtual environments
 .venv
 
@@ -16,4 +22,3 @@ examples/
 characters/
 backgrounds/
 my-video/public/content/
-

@@ -190,7 +190,55 @@ print("missing", missing)
 PY
 ```
 
-### 5. Build Director Content
+### 5. Score TTS With RoleTone
+
+RoleTone is vendored in this repo at `third_party/RoleTone` and installed by `uv sync --extra all`.
+Use the project-local CLI, not the old external `/Volumes/.../RoleTone` project.
+
+Check the CLI and available devices:
+
+```bash
+.venv/bin/roletone --help
+.venv/bin/roletone devices
+```
+
+The repo-level `.env.example` contains the expected RoleTone defaults. The important variables are:
+
+```text
+HF_HOME=./modelsweights/huggingface
+HF_HUB_DISABLE_XET=1
+NUMBA_CACHE_DIR=/private/tmp/roletone_numba_cache
+ROLETONE_MODEL=wavlm-base-plus-sv
+ROLETONE_DEVICE=auto
+```
+
+Use CPU for comparable scoring unless there is a clear reason to benchmark another device.
+On this Mac environment `roletone devices` may report `mps` unavailable even when TTS itself uses MPS.
+
+Score a per-speaker candidate directory:
+
+```bash
+NUMBA_CACHE_DIR=/private/tmp/roletone_numba_cache \
+.venv/bin/roletone score-dir \
+  --reference characters/kitasan_black/reference.mp3 \
+  --candidates-dir draft/kitasan_black_audio_candidates/roletone_revision/kitasan_black \
+  --pattern "*.wav" \
+  --output draft/kitasan_black_audio_candidates/kitasan_black_roletone_scores.csv \
+  --model sv \
+  --device cpu \
+  --hf-home ./modelsweights/huggingface \
+  --offline
+```
+
+If a script's audio directory mixes multiple speakers, create a temporary per-speaker directory with symlinks or copies before scoring. The reference must match the candidate speaker, for example `characters/<speaker_id>/reference.mp3`.
+
+Treat low scores as a review queue, not an automatic failure. WavLM can false-negative on very short lines, noisy starts, breathy attacks, or lines with unusual emotion. For visibly low and audibly bad lines, try in this order:
+
+- Regenerate with the same text and low-temperature sampling.
+- Shorten or rephrase the spoken text while keeping subtitles unchanged if needed.
+- Use context generation plus cut: generate a longer line that leads into the target sentence, then cut out only the target audio.
+
+### 6. Build Director Content
 
 Build 4K:
 
@@ -226,7 +274,7 @@ print(round(d["elements"][-1]["endMs"] / 1000, 2))
 PY
 ```
 
-### 6. Validate and Render Remotion
+### 7. Validate and Render Remotion
 
 Composition IDs cannot contain `_`. A content directory named `EndDay_Final_4k` is rendered with composition id `EndDay-Final-4k`.
 
