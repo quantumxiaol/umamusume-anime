@@ -7,8 +7,13 @@ from pathlib import Path
 from typing import Any
 
 from my_tts.cli import (
+    DEFAULT_FISH_TTS_URL,
+    DEFAULT_QWEN3TTS_URL,
+    FishSpeechClient,
     Qwen3TTSClient,
+    extract_fish_gen_kwargs,
     extract_qwen_gen_kwargs,
+    materialize_fish_stored_audio,
     materialize_qwen_stored_audio,
     parse_bool,
     transcode_to_wav,
@@ -16,7 +21,7 @@ from my_tts.cli import (
 
 
 DEFAULT_CHARACTERS_ROOT = Path("characters")
-DEFAULT_QWEN3TTS_URL = "http://127.0.0.1:8001"
+DEFAULT_TTS_ENGINE = "qwen3tts"
 
 
 class SynthesisError(RuntimeError):
@@ -38,7 +43,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Synthesize audio for structured script lines.")
     parser.add_argument("--script", required=True, help="Structured script JSON.")
     parser.add_argument("--characters-root", default=str(DEFAULT_CHARACTERS_ROOT), help="Character assets root.")
+    parser.add_argument(
+        "--tts-engine",
+        choices=("qwen3tts", "fishspeech"),
+        default=DEFAULT_TTS_ENGINE,
+        help="Voice clone backend to call.",
+    )
     parser.add_argument("--qwen3tts-url", default=DEFAULT_QWEN3TTS_URL, help="Qwen3-TTS service URL.")
+    parser.add_argument("--fish-tts-url", default=DEFAULT_FISH_TTS_URL, help="Fish Speech service URL.")
     parser.add_argument("--timeout", type=float, default=300.0, help="HTTP timeout in seconds.")
     parser.add_argument("--language", default="Japanese", help="Qwen3-TTS language value.")
     parser.add_argument(
@@ -73,6 +85,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--top-p", type=float)
     parser.add_argument("--temperature", type=float)
     parser.add_argument("--repetition-penalty", type=float)
+    parser.add_argument("--chunk-length", type=int, help="Forward chunk_length to Fish Speech.")
+    parser.add_argument("--seed", type=int, help="Forward seed to Fish Speech.")
+    parser.add_argument(
+        "--use-memory-cache",
+        choices=("on", "off"),
+        help="Forward use_memory_cache to Fish Speech.",
+    )
+    parser.add_argument("--fish-format", default="wav", help="Fish Speech output audio format.")
     parser.add_argument(
         "--subtalker-do-sample",
         nargs="?",
@@ -125,7 +145,10 @@ def synthesize_script(args: argparse.Namespace) -> None:
         print("all audio targets already exist")
         return
 
-    client = Qwen3TTSClient(base_url=args.qwen3tts_url, timeout=args.timeout)
+    if args.tts_engine == "fishspeech":
+        client: Qwen3TTSClient | FishSpeechClient = FishSpeechClient(base_url=args.fish_tts_url, timeout=args.timeout)
+    else:
+        client = Qwen3TTSClient(base_url=args.qwen3tts_url, timeout=args.timeout)
     try:
         with tempfile.TemporaryDirectory(prefix="script-tts-") as temp_name:
             temp_dir = Path(temp_name)
@@ -154,7 +177,7 @@ def synthesize_script(args: argparse.Namespace) -> None:
 
 def synthesize_batches(
     *,
-    client: Qwen3TTSClient,
+    client: Qwen3TTSClient | FishSpeechClient,
     targets: list[dict[str, Any]],
     characters_root: Path,
     temp_dir: Path,
@@ -180,9 +203,12 @@ def synthesize_batches(
         if not reference_text:
             raise SynthesisError(f"empty reference text: {character_dir / 'reference_jp.txt'}")
 
-        normalized_reference = temp_dir / f"{safe_filename(speaker_id)}_reference.wav"
-        if not normalized_reference.exists():
-            transcode_to_wav(reference_audio, normalized_reference)
+        request_reference = reference_audio
+        if args.tts_engine == "qwen3tts":
+            normalized_reference = temp_dir / f"{safe_filename(speaker_id)}_reference.wav"
+            if not normalized_reference.exists():
+                transcode_to_wav(reference_audio, normalized_reference)
+            request_reference = normalized_reference
 
         for batch_index, batch in enumerate(chunk_lines(lines, args.batch_size), start=1):
             batch_texts = [line_spoken_text(line) for line in batch]
@@ -195,28 +221,49 @@ def synthesize_batches(
                 f"[{first}-{last}/{total}] batch speaker={speaker_id} lines={len(batch)}",
                 flush=True,
             )
-            payload = client.voice_clone_batch_file(
-                ref_audio_path=normalized_reference,
-                text_file=text_file,
-                ref_text=reference_text,
-                language=args.language,
-                output_prefix=f"{safe_filename(speaker_id)}_{batch_index:03d}",
-                **extract_qwen_gen_kwargs(args),
-            )
+            if args.tts_engine == "fishspeech":
+                assert isinstance(client, FishSpeechClient)
+                payload = client.voice_clone_batch_file(
+                    ref_audio_path=request_reference,
+                    text_file=text_file,
+                    ref_text=reference_text,
+                    output_prefix=f"{safe_filename(speaker_id)}_{batch_index:03d}",
+                    audio_format=args.fish_format,
+                    **extract_fish_gen_kwargs(args),
+                )
+            else:
+                assert isinstance(client, Qwen3TTSClient)
+                payload = client.voice_clone_batch_file(
+                    ref_audio_path=request_reference,
+                    text_file=text_file,
+                    ref_text=reference_text,
+                    language=args.language,
+                    output_prefix=f"{safe_filename(speaker_id)}_{batch_index:03d}",
+                    **extract_qwen_gen_kwargs(args),
+                )
             stored_files = expect_audio_paths(payload)
             if len(stored_files) != len(batch):
                 raise SynthesisError(
-                    f"qwen batch returned {len(stored_files)} files for {len(batch)} {speaker_id} lines"
+                    f"{args.tts_engine} batch returned {len(stored_files)} files for {len(batch)} {speaker_id} lines"
                 )
 
             for line, stored in zip(batch, stored_files, strict=True):
                 line_id = str(line.get("id") or f"line_{completed + 1:03d}")
                 output_path = Path(str(line["audio"])).expanduser()
-                materialize_qwen_stored_audio(
-                    client=client,
-                    stored=stored,
-                    destination=output_path.resolve(),
-                )
+                if args.tts_engine == "fishspeech":
+                    assert isinstance(client, FishSpeechClient)
+                    materialize_fish_stored_audio(
+                        client=client,
+                        stored=stored,
+                        destination=output_path.resolve(),
+                    )
+                else:
+                    assert isinstance(client, Qwen3TTSClient)
+                    materialize_qwen_stored_audio(
+                        client=client,
+                        stored=stored,
+                        destination=output_path.resolve(),
+                    )
                 completed += 1
                 print(
                     f"[{completed}/{total}] {line_id} speaker={speaker_id} batch-output={stored.get('filename', 'audio.wav')}",
@@ -226,7 +273,7 @@ def synthesize_batches(
 
 def synthesize_line(
     *,
-    client: Qwen3TTSClient,
+    client: Qwen3TTSClient | FishSpeechClient,
     line: dict[str, Any],
     index: int,
     total: int,
@@ -257,23 +304,43 @@ def synthesize_line(
         raise SynthesisError(f"line {line_id} has audio but no spokenText")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    normalized_reference = temp_dir / f"{speaker_id}_reference.wav"
-    if not normalized_reference.exists():
-        transcode_to_wav(reference_audio, normalized_reference)
+    request_reference = reference_audio
+    if args.tts_engine == "qwen3tts":
+        normalized_reference = temp_dir / f"{speaker_id}_reference.wav"
+        if not normalized_reference.exists():
+            transcode_to_wav(reference_audio, normalized_reference)
+        request_reference = normalized_reference
 
     print(f"[{index}/{total}] {line_id} speaker={speaker_id}", flush=True)
-    payload = client.voice_clone(
-        ref_audio_path=normalized_reference,
-        text=text,
-        ref_text=reference_text,
-        language=args.language,
-        output_name=f"{line_id}.wav",
-        **extract_qwen_gen_kwargs(args),
-    )
+    if args.tts_engine == "fishspeech":
+        assert isinstance(client, FishSpeechClient)
+        payload = client.voice_clone(
+            ref_audio_path=request_reference,
+            text=text,
+            ref_text=reference_text,
+            output_name=f"{line_id}.wav",
+            audio_format=args.fish_format,
+            **extract_fish_gen_kwargs(args),
+        )
+    else:
+        assert isinstance(client, Qwen3TTSClient)
+        payload = client.voice_clone(
+            ref_audio_path=request_reference,
+            text=text,
+            ref_text=reference_text,
+            language=args.language,
+            output_name=f"{line_id}.wav",
+            **extract_qwen_gen_kwargs(args),
+        )
     stored = payload.get("audio")
     if not isinstance(stored, dict):
-        raise SynthesisError(f"qwen response did not include audio for {line_id}")
-    materialize_qwen_stored_audio(client=client, stored=stored, destination=output_path.resolve())
+        raise SynthesisError(f"{args.tts_engine} response did not include audio for {line_id}")
+    if args.tts_engine == "fishspeech":
+        assert isinstance(client, FishSpeechClient)
+        materialize_fish_stored_audio(client=client, stored=stored, destination=output_path.resolve())
+    else:
+        assert isinstance(client, Qwen3TTSClient)
+        materialize_qwen_stored_audio(client=client, stored=stored, destination=output_path.resolve())
 
 
 def chunk_lines(lines: list[dict[str, Any]], batch_size: int) -> list[list[dict[str, Any]]]:
@@ -285,7 +352,7 @@ def chunk_lines(lines: list[dict[str, Any]], batch_size: int) -> list[list[dict[
 def expect_audio_paths(payload: dict[str, Any]) -> list[dict[str, Any]]:
     stored = payload.get("audio_paths")
     if not isinstance(stored, list) or not all(isinstance(item, dict) for item in stored):
-        raise SynthesisError("qwen batch response did not include expected audio_paths list")
+        raise SynthesisError("batch response did not include expected audio_paths list")
     return stored
 
 

@@ -18,9 +18,11 @@ from typing import Any, Sequence
 import httpx
 
 QWEN_API_PREFIX = "/qwen3tts"
+FISH_API_PREFIX = "/fishspeech"
 DEFAULT_CONTENT_ROOT = Path("my-video") / "public" / "content"
 DEFAULT_INDEXTTS_URL = "http://127.0.0.1:8000"
 DEFAULT_QWEN3TTS_URL = "http://127.0.0.1:8001"
+DEFAULT_FISH_TTS_URL = "http://127.0.0.1:8002"
 DEFAULT_REFERENCE_DIR_NAME = "reference-audio"
 
 
@@ -284,10 +286,135 @@ class Qwen3TTSClient:
         return self._json(response)
 
 
+class FishSpeechClient:
+    def __init__(self, base_url: str, timeout: float) -> None:
+        normalized = base_url.rstrip("/")
+        if normalized.endswith(FISH_API_PREFIX):
+            normalized = normalized[: -len(FISH_API_PREFIX)]
+        self._client = httpx.Client(base_url=normalized, timeout=timeout)
+
+    def close(self) -> None:
+        self._client.close()
+
+    def _json(self, response: httpx.Response) -> dict[str, Any]:
+        response.raise_for_status()
+        return response.json()
+
+    def download(self, url: str, destination: Path) -> Path:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with self._client.stream("GET", url) as response:
+            response.raise_for_status()
+            with destination.open("wb") as handle:
+                for chunk in response.iter_bytes():
+                    handle.write(chunk)
+        return destination
+
+    def health(self) -> dict[str, Any]:
+        return self._json(self._client.get(f"{FISH_API_PREFIX}/health"))
+
+    def voice_clone(
+        self,
+        *,
+        ref_audio_path: Path,
+        text: str | None = None,
+        text_file: Path | None = None,
+        ref_text: str | None = None,
+        ref_text_file: Path | None = None,
+        output_name: str | None = None,
+        audio_format: str = "wav",
+        **gen_kwargs: Any,
+    ) -> dict[str, Any]:
+        with ExitStack() as stack:
+            data: dict[str, str] = {"format": audio_format}
+            files: dict[str, tuple[str, Any, str]] = {
+                "ref_audio": (
+                    ref_audio_path.name,
+                    stack.enter_context(ref_audio_path.open("rb")),
+                    audio_mime_type(ref_audio_path),
+                )
+            }
+
+            if text is not None:
+                data["text"] = text
+            if ref_text is not None:
+                data["ref_text"] = ref_text
+            if output_name is not None:
+                data["output_name"] = output_name
+            if text_file is not None:
+                files["text_file"] = (
+                    text_file.name,
+                    stack.enter_context(text_file.open("rb")),
+                    "text/plain",
+                )
+            if ref_text_file is not None:
+                files["ref_text_file"] = (
+                    ref_text_file.name,
+                    stack.enter_context(ref_text_file.open("rb")),
+                    "text/plain",
+                )
+            for key, value in gen_kwargs.items():
+                if value is not None:
+                    data[key] = _form_value(value)
+
+            response = self._client.post(f"{FISH_API_PREFIX}/tts/voice_clone", data=data, files=files)
+        return self._json(response)
+
+    def voice_clone_batch_file(
+        self,
+        *,
+        ref_audio_path: Path,
+        text_file: Path | None = None,
+        texts: Sequence[str] | None = None,
+        ref_text: str | None = None,
+        ref_text_file: Path | None = None,
+        output_prefix: str | None = None,
+        audio_format: str = "wav",
+        **gen_kwargs: Any,
+    ) -> dict[str, Any]:
+        if text_file is not None and texts:
+            raise ValueError("Provide either text_file or texts, not both.")
+        if text_file is None and not texts:
+            raise ValueError("Either text_file or texts must be provided.")
+
+        with ExitStack() as stack:
+            data: dict[str, Any] = {"format": audio_format}
+            files: dict[str, tuple[str, Any, str]] = {
+                "ref_audio": (
+                    ref_audio_path.name,
+                    stack.enter_context(ref_audio_path.open("rb")),
+                    audio_mime_type(ref_audio_path),
+                )
+            }
+            if text_file is not None:
+                files["text_file"] = (
+                    text_file.name,
+                    stack.enter_context(text_file.open("rb")),
+                    "text/plain",
+                )
+            if texts:
+                data["text"] = list(texts)
+            if ref_text is not None:
+                data["ref_text"] = ref_text
+            if output_prefix is not None:
+                data["output_prefix"] = output_prefix
+            if ref_text_file is not None:
+                files["ref_text_file"] = (
+                    ref_text_file.name,
+                    stack.enter_context(ref_text_file.open("rb")),
+                    "text/plain",
+                )
+            for key, value in gen_kwargs.items():
+                if value is not None:
+                    data[key] = _form_value(value)
+
+            response = self._client.post(f"{FISH_API_PREFIX}/tts/voice_clone_batch_file", data=data, files=files)
+        return self._json(response)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="my-tts",
-        description="Project-level and service-level CLI for local IndexTTS and Qwen3TTS backends.",
+        description="Project-level and service-level CLI for local IndexTTS, Qwen3TTS, and Fish Speech backends.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -360,12 +487,51 @@ def build_parser() -> argparse.ArgumentParser:
     qwen_narration_batch.add_argument("--output-prefix", help="Output filename prefix on the server.")
     qwen_narration_batch.add_argument("--download-dir", help="Optional local directory for returned audios.")
 
+    fish = subparsers.add_parser("fish", help="Call Fish Speech service endpoints directly.")
+    fish_subparsers = fish.add_subparsers(dest="fish_command", required=True)
+
+    fish_health = fish_subparsers.add_parser("health", help="Call GET /fishspeech/health.")
+    add_fish_common_args(fish_health)
+
+    fish_voice_clone = fish_subparsers.add_parser("voice-clone", help="Call POST /fishspeech/tts/voice_clone.")
+    add_fish_common_args(fish_voice_clone)
+    add_fish_generation_args(fish_voice_clone)
+    fish_voice_clone.add_argument("--ref-audio", required=True, help="Reference audio path.")
+    fish_voice_clone.add_argument("--text", help="Inline synthesis text.")
+    fish_voice_clone.add_argument("--text-file", help="Synthesis text file.")
+    fish_voice_clone.add_argument("--ref-text", help="Inline reference transcript.")
+    fish_voice_clone.add_argument("--ref-text-file", help="Reference transcript file.")
+    fish_voice_clone.add_argument("--output-name", help="Optional output filename on the server.")
+    fish_voice_clone.add_argument("--format", default="wav", help="Output audio format.")
+    fish_voice_clone.add_argument("--download-to", help="Optional local file path for the returned audio.")
+
+    fish_voice_clone_batch = fish_subparsers.add_parser(
+        "voice-clone-batch-file",
+        aliases=["voice-clone-batch"],
+        help="Call POST /fishspeech/tts/voice_clone_batch_file.",
+    )
+    add_fish_common_args(fish_voice_clone_batch)
+    add_fish_generation_args(fish_voice_clone_batch)
+    fish_voice_clone_batch.add_argument("--ref-audio", required=True, help="Reference audio path.")
+    fish_voice_clone_batch.add_argument("--text", action="append", help="Inline synthesis text. Can be repeated.")
+    fish_voice_clone_batch.add_argument("--text-file", help="Input text file, one line per sample.")
+    fish_voice_clone_batch.add_argument("--ref-text", help="Inline reference transcript for the prompt audio.")
+    fish_voice_clone_batch.add_argument("--ref-text-file", help="Reference transcript file for the prompt audio.")
+    fish_voice_clone_batch.add_argument("--output-prefix", help="Output filename prefix on the server.")
+    fish_voice_clone_batch.add_argument("--format", default="wav", help="Output audio format.")
+    fish_voice_clone_batch.add_argument("--download-dir", help="Optional local directory for returned audios.")
+
     return parser
 
 
 def add_clone_project_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("project", help="Project slug under the content root.")
-    parser.add_argument("--engine", choices=("indextts", "qwen3tts"), required=True, help="Which backend service to use.")
+    parser.add_argument(
+        "--engine",
+        choices=("indextts", "qwen3tts", "fishspeech"),
+        required=True,
+        help="Which backend service to use.",
+    )
     parser.add_argument("--content-root", default=str(DEFAULT_CONTENT_ROOT), help="Content root directory.")
     parser.add_argument(
         "--script-file",
@@ -393,6 +559,7 @@ def add_clone_project_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--timeout", type=float, default=300.0, help="HTTP timeout in seconds.")
     parser.add_argument("--indextts-url", default=DEFAULT_INDEXTTS_URL, help="IndexTTS service base URL.")
     parser.add_argument("--qwen3tts-url", default=DEFAULT_QWEN3TTS_URL, help="Qwen3TTS service base URL.")
+    parser.add_argument("--fish-tts-url", default=DEFAULT_FISH_TTS_URL, help="Fish Speech service base URL.")
     parser.add_argument("--qwen-language", default="Japanese", help="Qwen3TTS language form value.")
     parser.add_argument(
         "--qwen-x-vector-only-mode",
@@ -400,6 +567,8 @@ def add_clone_project_args(parser: argparse.ArgumentParser) -> None:
         help="Enable x_vector_only_mode for qwen3tts and skip ref_text validation.",
     )
     add_qwen_generation_args(parser, prefix="qwen-")
+    add_fish_generation_args(parser, prefix="fish-")
+    parser.add_argument("--fish-format", default="wav", help="Fish Speech output audio format.")
     parser.add_argument("--index-emo-audio-prompt", help="Optional emotion reference audio for IndexTTS.")
     parser.add_argument("--index-emo-alpha", type=float, default=1.0, help="Emotion reference weight for IndexTTS.")
     parser.add_argument("--index-emo-text", help="Optional emotion text for IndexTTS.")
@@ -421,6 +590,11 @@ def add_clone_project_args(parser: argparse.ArgumentParser) -> None:
 
 def add_qwen_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--base-url", default=DEFAULT_QWEN3TTS_URL, help="Qwen3TTS service base URL.")
+    parser.add_argument("--timeout", type=float, default=300.0, help="HTTP timeout in seconds.")
+
+
+def add_fish_common_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--base-url", default=DEFAULT_FISH_TTS_URL, help="Fish Speech service base URL.")
     parser.add_argument("--timeout", type=float, default=300.0, help="HTTP timeout in seconds.")
 
 
@@ -465,6 +639,21 @@ def add_qwen_generation_args(parser: argparse.ArgumentParser, prefix: str = "") 
     )
 
 
+def add_fish_generation_args(parser: argparse.ArgumentParser, prefix: str = "") -> None:
+    parser.add_argument(f"--{prefix}max-new-tokens", type=int, dest=f"{prefix_to_dest(prefix)}max_new_tokens")
+    parser.add_argument(f"--{prefix}chunk-length", type=int, dest=f"{prefix_to_dest(prefix)}chunk_length")
+    parser.add_argument(f"--{prefix}top-p", type=float, dest=f"{prefix_to_dest(prefix)}top_p")
+    parser.add_argument(f"--{prefix}temperature", type=float, dest=f"{prefix_to_dest(prefix)}temperature")
+    parser.add_argument(f"--{prefix}repetition-penalty", type=float, dest=f"{prefix_to_dest(prefix)}repetition_penalty")
+    parser.add_argument(f"--{prefix}seed", type=int, dest=f"{prefix_to_dest(prefix)}seed")
+    parser.add_argument(
+        f"--{prefix}use-memory-cache",
+        choices=("on", "off"),
+        dest=f"{prefix_to_dest(prefix)}use_memory_cache",
+        help="Forward use_memory_cache to Fish Speech.",
+    )
+
+
 def prefix_to_dest(prefix: str) -> str:
     return prefix.replace("-", "_")
 
@@ -486,6 +675,19 @@ def _form_value(value: Any) -> str:
     return str(value)
 
 
+def audio_mime_type(path: Path) -> str:
+    suffix = path.suffix.lower()
+    if suffix == ".mp3":
+        return "audio/mpeg"
+    if suffix == ".flac":
+        return "audio/flac"
+    if suffix == ".ogg":
+        return "audio/ogg"
+    if suffix == ".m4a":
+        return "audio/mp4"
+    return "audio/wav"
+
+
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
@@ -496,6 +698,8 @@ def main() -> int:
             return cmd_clone_project(args)
         if args.command == "qwen":
             return cmd_qwen(args)
+        if args.command == "fish":
+            return cmd_fish(args)
         parser.error(f"Unsupported command: {args.command}")
     except CliError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -624,6 +828,64 @@ def cmd_qwen(args: argparse.Namespace) -> int:
     raise CliError(f"unsupported qwen command: {args.qwen_command}")
 
 
+def cmd_fish(args: argparse.Namespace) -> int:
+    client = FishSpeechClient(base_url=args.base_url, timeout=args.timeout)
+    try:
+        if args.fish_command == "health":
+            emit_json(client.health())
+            return 0
+
+        if args.fish_command == "voice-clone":
+            validate_text_inputs(args.text, args.text_file, field_name="text")
+            validate_optional_reference_text_inputs(ref_text=args.ref_text, ref_text_file=args.ref_text_file)
+            payload = client.voice_clone(
+                ref_audio_path=resolve_existing_file(args.ref_audio, label="ref audio"),
+                text=args.text,
+                text_file=resolve_optional_file(args.text_file),
+                ref_text=args.ref_text,
+                ref_text_file=resolve_optional_file(args.ref_text_file),
+                output_name=args.output_name,
+                audio_format=args.format,
+                **extract_fish_gen_kwargs(args),
+            )
+            downloaded = None
+            if args.download_to:
+                downloaded = download_fish_audio_file(
+                    client=client,
+                    stored=expect_stored_file(payload, "audio"),
+                    destination=Path(args.download_to).expanduser().resolve(),
+                )
+            emit_json(with_downloaded_field(payload, downloaded))
+            return 0
+
+        if args.fish_command in {"voice-clone-batch-file", "voice-clone-batch"}:
+            validate_text_inputs(args.text, args.text_file, field_name="text")
+            validate_optional_reference_text_inputs(ref_text=args.ref_text, ref_text_file=args.ref_text_file)
+            payload = client.voice_clone_batch_file(
+                ref_audio_path=resolve_existing_file(args.ref_audio, label="ref audio"),
+                text_file=resolve_optional_file(args.text_file),
+                texts=args.text,
+                ref_text=args.ref_text,
+                ref_text_file=resolve_optional_file(args.ref_text_file),
+                output_prefix=args.output_prefix,
+                audio_format=args.format,
+                **extract_fish_gen_kwargs(args),
+            )
+            downloaded = None
+            if args.download_dir:
+                downloaded = download_fish_audio_files(
+                    client=client,
+                    stored_files=expect_stored_file_list(payload, "audio_paths"),
+                    destination_dir=Path(args.download_dir).expanduser().resolve(),
+                )
+            emit_json(with_downloaded_field(payload, downloaded))
+            return 0
+    finally:
+        client.close()
+
+    raise CliError(f"unsupported fish command: {args.fish_command}")
+
+
 def emit_json(payload: dict[str, Any]) -> None:
     json.dump(payload, sys.stdout, ensure_ascii=False, indent=2)
     sys.stdout.write("\n")
@@ -669,6 +931,11 @@ def validate_reference_text_inputs(
         raise CliError("provide only one of --ref-text or --ref-text-file")
     if not x_vector_only_mode and not (ref_text or ref_text_file):
         raise CliError("qwen voice cloning requires --ref-text/--ref-text-file unless --x-vector-only-mode is set")
+
+
+def validate_optional_reference_text_inputs(*, ref_text: str | None, ref_text_file: str | None) -> None:
+    if ref_text and ref_text_file:
+        raise CliError("provide only one of --ref-text or --ref-text-file")
 
 
 def resolve_existing_file(path_value: str, *, label: str) -> Path:
@@ -729,6 +996,20 @@ def extract_qwen_gen_kwargs(args: argparse.Namespace, prefix: str = "") -> dict[
     return kwargs
 
 
+def extract_fish_gen_kwargs(args: argparse.Namespace, prefix: str = "") -> dict[str, Any]:
+    key_prefix = prefix_to_dest(prefix)
+    kwargs = {
+        "max_new_tokens": getattr(args, f"{key_prefix}max_new_tokens", None),
+        "chunk_length": getattr(args, f"{key_prefix}chunk_length", None),
+        "top_p": getattr(args, f"{key_prefix}top_p", None),
+        "temperature": getattr(args, f"{key_prefix}temperature", None),
+        "repetition_penalty": getattr(args, f"{key_prefix}repetition_penalty", None),
+        "seed": getattr(args, f"{key_prefix}seed", None),
+        "use_memory_cache": getattr(args, f"{key_prefix}use_memory_cache", None),
+    }
+    return {key: value for key, value in kwargs.items() if value is not None}
+
+
 def download_qwen_audio_file(*, client: Qwen3TTSClient, stored: dict[str, Any], destination: Path) -> str:
     local_path = try_copy_stored_file(stored=stored, destination=destination)
     if local_path is not None:
@@ -753,6 +1034,33 @@ def download_qwen_audio_files(
         filename = str(stored.get("filename") or "audio.wav")
         destination = destination_dir / filename
         downloaded.append(download_qwen_audio_file(client=client, stored=stored, destination=destination))
+    return downloaded
+
+
+def download_fish_audio_file(*, client: FishSpeechClient, stored: dict[str, Any], destination: Path) -> str:
+    local_path = try_copy_stored_file(stored=stored, destination=destination)
+    if local_path is not None:
+        return str(local_path)
+
+    url = stored.get("url")
+    if not isinstance(url, str) or not url:
+        raise CliError("stored file response did not include a usable url")
+    client.download(url, destination)
+    return str(destination)
+
+
+def download_fish_audio_files(
+    *,
+    client: FishSpeechClient,
+    stored_files: list[dict[str, Any]],
+    destination_dir: Path,
+) -> list[str]:
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    downloaded: list[str] = []
+    for stored in stored_files:
+        filename = str(stored.get("filename") or "audio.wav")
+        destination = destination_dir / filename
+        downloaded.append(download_fish_audio_file(client=client, stored=stored, destination=destination))
     return downloaded
 
 
@@ -814,6 +1122,13 @@ def cmd_clone_project(args: argparse.Namespace) -> int:
                 "qwen3tts requires reference text for every item unless --qwen-x-vector-only-mode is set. "
                 f"Missing uid(s): {', '.join(missing)}"
             )
+    if args.engine == "fishspeech":
+        missing = [uid for uid, text in reference_texts.items() if not text.strip()]
+        if missing:
+            raise CliError(
+                "fishspeech requires reference text for every item. "
+                f"Missing uid(s): {', '.join(missing)}"
+            )
 
     if not args.shared_reference_audio and not args.no_backup_reference_audio:
         backup_project_audio(project_paths, items)
@@ -824,6 +1139,8 @@ def cmd_clone_project(args: argparse.Namespace) -> int:
 
     if args.engine == "indextts":
         client = IndexTTSClient(base_url=args.indextts_url, timeout=args.timeout)
+    elif args.engine == "fishspeech":
+        client = FishSpeechClient(base_url=args.fish_tts_url, timeout=args.timeout)
     else:
         client = Qwen3TTSClient(base_url=args.qwen3tts_url, timeout=args.timeout)
 
@@ -886,7 +1203,7 @@ def should_use_qwen_batch_mode(
 
 def process_project_item_by_item(
     *,
-    client: IndexTTSClient | Qwen3TTSClient,
+    client: IndexTTSClient | Qwen3TTSClient | FishSpeechClient,
     args: argparse.Namespace,
     temp_dir: Path,
     items: list[dict[str, Any]],
@@ -942,7 +1259,7 @@ def process_project_item_by_item(
 
 def process_qwen_project_batch(
     *,
-    client: IndexTTSClient | Qwen3TTSClient,
+    client: IndexTTSClient | Qwen3TTSClient | FishSpeechClient,
     args: argparse.Namespace,
     temp_dir: Path,
     items: list[dict[str, Any]],
@@ -1029,7 +1346,9 @@ def store_project_result_audio(
     item["ttsMeta"] = {
         "updatedAt": timestamp,
         "referenceAudio": str(reference_audio),
-        "referenceText": reference_text if engine == "qwen3tts" and not x_vector_only_mode else None,
+        "referenceText": reference_text
+        if engine == "fishspeech" or (engine == "qwen3tts" and not x_vector_only_mode)
+        else None,
         "durationSeconds": round(duration_seconds, 3),
     }
 
@@ -1089,7 +1408,7 @@ def resolve_reference_audio(project_paths: ProjectPaths, uid: str, shared_refere
 
 def synthesize_item(
     *,
-    client: IndexTTSClient | Qwen3TTSClient,
+    client: IndexTTSClient | Qwen3TTSClient | FishSpeechClient,
     engine: str,
     uid: str,
     target_text: str,
@@ -1120,6 +1439,22 @@ def synthesize_item(
             )
         return audio_path
 
+    if engine == "fishspeech":
+        assert isinstance(client, FishSpeechClient)
+        payload = client.voice_clone(
+            ref_audio_path=reference_audio_wav,
+            text=target_text,
+            output_name=f"{uid}.wav",
+            ref_text=reference_text or None,
+            audio_format=args.fish_format,
+            **extract_fish_gen_kwargs(args, prefix="fish-"),
+        )
+        return materialize_fish_stored_audio(
+            client=client,
+            stored=expect_stored_file(payload, "audio"),
+            destination=temp_dir / f"{uid}_fish.wav",
+        )
+
     assert isinstance(client, Qwen3TTSClient)
     payload = client.voice_clone(
         ref_audio_path=reference_audio_wav,
@@ -1144,6 +1479,17 @@ def materialize_qwen_stored_audio(*, client: Qwen3TTSClient, stored: dict[str, A
     url = stored.get("url")
     if not isinstance(url, str) or not url:
         raise CliError("qwen3tts response did not include a usable audio url")
+    client.download(url, destination)
+    return destination
+
+
+def materialize_fish_stored_audio(*, client: FishSpeechClient, stored: dict[str, Any], destination: Path) -> Path:
+    copied = try_copy_stored_file(stored=stored, destination=destination)
+    if copied is not None:
+        return copied
+    url = stored.get("url")
+    if not isinstance(url, str) or not url:
+        raise CliError("fishspeech response did not include a usable audio url")
     client.download(url, destination)
     return destination
 

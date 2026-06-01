@@ -3,7 +3,7 @@
 项目内的 Python CLI，分成两层能力：
 
 - 项目级工作流：围绕 `my-video/public/content/<slug>` 批量替换音频并重建时间轴
-- 服务级原子能力：直接调用本地 `Qwen3TTS` 服务的单条/批量接口
+- 服务级原子能力：直接调用本地 `Qwen3TTS` / `Fish Speech` 服务的单条/批量接口
 
 ## 当前功能
 
@@ -14,7 +14,7 @@
 - `clone-project`
   - 读取 `descriptor.json`
   - 读取项目当前 `audio/<uid>.mp3` 作为参考音频，或使用 `--shared-reference-audio`
-  - 调用 `IndexTTS` 或 `Qwen3TTS` 生成新音频
+  - 调用 `IndexTTS`、`Qwen3TTS` 或 `Fish Speech` 生成新音频
   - 自动把结果转成 `mp3` 覆盖项目音频
   - 更新 `descriptor.json` 中的 `text`、`audioTimestamps`、`ttsMeta`
   - 重新生成 `timeline.json`
@@ -42,6 +42,14 @@
 - 可选把服务端返回的音频下载到本地
 - 透传常见生成参数，如 `top_p`、`temperature`、`max_new_tokens`
 
+### 3. Fish Speech 服务级
+
+- `fish health`
+- `fish voice-clone`
+- `fish voice-clone-batch-file`
+
+Fish Speech 默认服务地址是 `http://127.0.0.1:8002`。如果本机同一时间只跑一个 TTS 后端，也可以让 Fish Speech 服务占用 `8001`，调用时加 `--base-url http://127.0.0.1:8001` 或项目级加 `--fish-tts-url http://127.0.0.1:8001`。
+
 ## 依赖
 
 - Python 环境：当前仓库的 `uv` 虚拟环境
@@ -49,6 +57,7 @@
 - 本地服务：
   - `IndexTTS` 默认 `http://127.0.0.1:8000`
   - `Qwen3TTS` 默认 `http://127.0.0.1:8001`
+  - `Fish Speech` 默认 `http://127.0.0.1:8002`
 
 ## 常用命令
 
@@ -73,6 +82,16 @@ uv run my-tts clone-project history-of-venus \
   --engine qwen3tts \
   --script-file /path/to/japanese-lines.txt \
   --reference-script-file /path/to/reference-lines.txt
+```
+
+项目级：用 `Fish Speech` 把一个项目改成日语音频：
+
+```bash
+uv run my-tts clone-project history-of-venus \
+  --engine fishspeech \
+  --fish-tts-url http://127.0.0.1:8002 \
+  --script-file /path/to/japanese-lines.txt \
+  --reference-script-file /path/to/ref-text.txt
 ```
 
 项目级：多个分段共用一条参考音频时：
@@ -111,6 +130,28 @@ uv run my-tts qwen voice-clone-batch-file \
   --ref-text "参考音频对应的文本" \
   --language Japanese \
   --download-dir /tmp/qwen-batch
+```
+
+服务级：Fish Speech 单条 voice clone：
+
+```bash
+uv run my-tts fish voice-clone \
+  --base-url http://127.0.0.1:8002 \
+  --ref-audio /path/to/reference.mp3 \
+  --ref-text "起きたら隣にダイヤちゃんがいるのって、普通のことだけど特別なことでもあるんだな、って。" \
+  --text "よいしょ、もう一本。お助けキタちゃん、今日も元気に行きます。" \
+  --download-to /tmp/fish-single.wav
+```
+
+服务级：Fish Speech 批量 voice clone：
+
+```bash
+uv run my-tts fish voice-clone-batch-file \
+  --base-url http://127.0.0.1:8002 \
+  --ref-audio /path/to/reference.mp3 \
+  --ref-text "参考音频对应的文本" \
+  --text-file /path/to/lines.txt \
+  --download-dir /tmp/fish-batch
 ```
 
 服务级：批量 narration：

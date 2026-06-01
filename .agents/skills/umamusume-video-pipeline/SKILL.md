@@ -105,43 +105,42 @@ print("ids_unique", len({line.get("id") for line in lines}) == len(lines))
 PY
 ```
 
-### 3. Check Qwen3-TTS Service
+### 3. Check TTS Service
 
-Use the local TTS service at `http://127.0.0.1:8001`.
+Use Qwen3-TTS by default. Qwen3-TTS normally runs on `http://127.0.0.1:8001`.
 
 ```bash
-uv run python - <<'PY'
+uv run python - <<'PYCODE'
 from my_tts.cli import Qwen3TTSClient
 c = Qwen3TTSClient("http://127.0.0.1:8001", timeout=10)
 try:
     print(c.health())
 finally:
     c.close()
-PY
+PYCODE
 ```
 
-If health times out, tell the user to restart `qwen-tts-server` before sending generation requests.
+Fish Speech is also supported. Fish Speech normally runs on `http://127.0.0.1:8002`. If only one TTS backend is running, Fish Speech may also use `8001`; then pass `--fish-tts-url http://127.0.0.1:8001`.
+
+```bash
+uv run my-tts fish health --base-url http://127.0.0.1:8002
+```
+
+If health times out, tell the user to restart the active TTS server before sending generation requests.
 
 ### 4. Generate TTS
 
 By default, `scripts/synthesize_script.py` uses Qwen3-TTS `voice_clone_batch_file` grouped by `speakerId`.
-Keep batches small so one bad generation does not poison or stall many lines. The script default is `--batch-size 6`;
-use `--no-batch` only when debugging the legacy one-line endpoint.
 
-For stable but still natural generation, explicitly enable sampling. Do not rely on `temperature`/`top-p`/`top-k`
-unless `--do-sample true` is present. If the service logs:
+Fish Speech is selected with `--tts-engine fishspeech`. It supports single-line `voice_clone` and multi-line `voice_clone_batch_file`. For Fish Speech S2 Pro, keep batches shorter because VRAM use is higher; use `--batch-size 2` to `--batch-size 4` for safer runs.
 
-```text
-The following generation flags are not valid and may be ignored: ['temperature', 'top_p', 'top_k']
-```
-
-then the request was treated like `do_sample=false`, so low-temperature sampling probably did not take effect.
-
-Generate missing audio:
+Qwen3-TTS command:
 
 ```bash
 uv run python scripts/synthesize_script.py \
   --script draft/endday_final_script.json \
+  --tts-engine qwen3tts \
+  --qwen3tts-url http://127.0.0.1:8001 \
   --timeout 900 \
   --batch-size 6 \
   --non-streaming-mode true \
@@ -155,39 +154,76 @@ uv run python scripts/synthesize_script.py \
   --subtalker-top-k 20
 ```
 
-Regenerate one character after reference audio changes:
+Fish Speech command:
 
 ```bash
 uv run python scripts/synthesize_script.py \
   --script draft/endday_final_script.json \
-  --speaker-id rice_shower \
+  --tts-engine fishspeech \
+  --fish-tts-url http://127.0.0.1:8002 \
+  --timeout 900 \
+  --batch-size 4 \
+  --temperature 0.7 \
+  --top-p 0.8 \
+  --max-new-tokens 512
+```
+
+If Fish Speech is running on `8001`, use:
+
+```bash
+--fish-tts-url http://127.0.0.1:8001
+```
+
+Regenerate one character:
+
+```bash
+uv run python scripts/synthesize_script.py \
+  --script draft/endday_final_script.json \
+  --tts-engine fishspeech \
+  --fish-tts-url http://127.0.0.1:8002 \
+  --speaker-id kitasan_black \
   --overwrite \
   --timeout 900 \
-  --batch-size 6 \
-  --non-streaming-mode true \
-  --do-sample true \
-  --temperature 0.6 \
-  --top-p 0.85 \
-  --top-k 20 \
-  --subtalker-do-sample true \
-  --subtalker-temperature 0.6 \
-  --subtalker-top-p 0.85 \
-  --subtalker-top-k 20
+  --batch-size 4 \
+  --temperature 0.7 \
+  --top-p 0.8 \
+  --max-new-tokens 512
 ```
 
-For deterministic generation, use `--do-sample false` and do not pass sampling parameters. The CLI strips
-sampling parameters when `--do-sample false` is explicit, but commands should still avoid mixing them.
+Regenerate one line:
+
+```bash
+uv run python scripts/synthesize_script.py \
+  --script draft/endday_final_script.json \
+  --tts-engine fishspeech \
+  --fish-tts-url http://127.0.0.1:8002 \
+  --line-id kb001 \
+  --overwrite \
+  --timeout 900 \
+  --no-batch \
+  --temperature 0.7 \
+  --top-p 0.8 \
+  --max-new-tokens 256
+```
+
+Backend-specific notes:
+
+- Qwen3-TTS supports `--language`, `--non-streaming-mode`, `--do-sample`, `--top-k`, and `--subtalker-*`.
+- Fish Speech supports `--temperature`, `--top-p`, `--max-new-tokens`, `--chunk-length`, `--seed`, `--use-memory-cache`, and `--fish-format`.
+- Do not pass Qwen-only tuning flags expecting Fish Speech to use them.
+- Fish Speech S2 Pro can be slower and memory-heavy; prefer short lines, smaller batches, and explicit `--max-new-tokens`.
+- If a short line sounds unstable, use the same repair approach as Qwen: regenerate, rephrase, or generate with a context lead-in and cut the target sentence.
 
 Verify every `audio` path exists before running director:
 
 ```bash
-uv run python - <<'PY'
+uv run python - <<'PYCODE'
 import json
 from pathlib import Path
 d = json.load(open("draft/endday_final_script.json", encoding="utf-8"))
 missing = [(line["id"], line["audio"]) for line in d["lines"] if line.get("audio") and not Path(line["audio"]).exists()]
 print("missing", missing)
-PY
+PYCODE
 ```
 
 ### 5. Score TTS With RoleTone
