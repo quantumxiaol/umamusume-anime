@@ -5,7 +5,7 @@ import {
   useCurrentFrame,
   useVideoConfig,
 } from "remotion";
-import { FPS, IMAGE_HEIGHT, IMAGE_WIDTH } from "../lib/constants";
+import { IMAGE_HEIGHT, IMAGE_WIDTH } from "../lib/constants";
 import { BackgroundElement } from "../lib/types";
 import { calculateBlur, getImagePath } from "../lib/utils";
 
@@ -16,8 +16,8 @@ export const Background: React.FC<{
   project: string;
 }> = ({ item, project }) => {
   const frame = useCurrentFrame();
-  const localMs = (frame / FPS) * 1000;
-  const { width, height } = useVideoConfig();
+  const { width, height, fps } = useVideoConfig();
+  const localMs = (frame / fps) * 1000;
 
   const imageRatio = IMAGE_WIDTH / IMAGE_HEIGHT;
   const compositionRatio = width / height;

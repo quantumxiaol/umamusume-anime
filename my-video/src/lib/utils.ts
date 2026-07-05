@@ -1,8 +1,11 @@
 import { staticFile } from "remotion";
-import { FPS, INTRO_DURATION } from "./constants";
+import { DEFAULT_FPS, introDurationFrames } from "./constants";
 import { BackgroundElement, Timeline } from "./types";
 
-export const loadTimelineFromFile = async (filename: string) => {
+export const loadTimelineFromFile = async (
+  filename: string,
+  fps = DEFAULT_FPS,
+) => {
   const res = await fetch(staticFile(filename));
   const json = await res.json();
   const timeline = json as Timeline;
@@ -12,7 +15,7 @@ export const loadTimelineFromFile = async (filename: string) => {
     timeline.elements.length > 0
       ? timeline.elements[timeline.elements.length - 1].endMs / 1000
       : 0;
-  const lengthFrames = Math.floor(lengthMs * FPS);
+  const lengthFrames = Math.floor(lengthMs * fps);
 
   return { timeline, lengthFrames };
 };
@@ -20,14 +23,23 @@ export const loadTimelineFromFile = async (filename: string) => {
 export const calculateFrameTiming = (
   startMs: number,
   endMs: number,
-  options: { includeIntro?: boolean; addIntroOffset?: boolean } = {},
+  options: {
+    includeIntro?: boolean;
+    addIntroOffset?: boolean;
+    fps?: number;
+  } = {},
 ) => {
-  const { includeIntro = false, addIntroOffset = false } = options;
+  const {
+    includeIntro = false,
+    addIntroOffset = false,
+    fps = DEFAULT_FPS,
+  } = options;
+  const introDuration = introDurationFrames(fps);
 
   const startFrame =
-    (startMs * FPS) / 1000 + (addIntroOffset ? INTRO_DURATION : 0);
+    (startMs * fps) / 1000 + (addIntroOffset ? introDuration : 0);
   const duration =
-    ((endMs - startMs) * FPS) / 1000 + (includeIntro ? INTRO_DURATION : 0);
+    ((endMs - startMs) * fps) / 1000 + (includeIntro ? introDuration : 0);
 
   return { startFrame, duration };
 };
