@@ -7,12 +7,15 @@ from pathlib import Path
 from typing import Any
 
 from my_tts.cli import (
+    CliError,
+    DEFAULT_FISH_STYLE_SYNTAX,
     DEFAULT_FISH_TTS_URL,
     DEFAULT_QWEN3TTS_URL,
     FishSpeechClient,
     Qwen3TTSClient,
     extract_fish_gen_kwargs,
     extract_qwen_gen_kwargs,
+    format_fish_speech_text,
     materialize_fish_stored_audio,
     materialize_qwen_stored_audio,
     parse_bool,
@@ -33,7 +36,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         synthesize_script(args)
-    except SynthesisError as exc:
+    except (CliError, SynthesisError) as exc:
         print(f"error: {exc}")
         return 2
     return 0
@@ -93,6 +96,33 @@ def build_parser() -> argparse.ArgumentParser:
         help="Forward use_memory_cache to Fish Speech.",
     )
     parser.add_argument("--fish-format", default="wav", help="Fish Speech output audio format.")
+    parser.add_argument(
+        "--fish-style",
+        dest="style",
+        help=(
+            "Fish Speech style preset or inline tag for all lines. Presets include bright, cute, "
+            "confident, energetic, excited, fast, joyful, satisfied, soft, and teasing."
+        ),
+    )
+    parser.add_argument(
+        "--fish-style-tag",
+        dest="style_tag",
+        help="Raw Fish Speech inline style tag, for example '[excited][pitch up]' or '(excited)'.",
+    )
+    parser.add_argument(
+        "--fish-style-syntax",
+        choices=("s1", "s2"),
+        default=None,
+        dest="style_syntax",
+        help="Inline style syntax for --fish-style presets. Use s2 for S2-Pro and s1 for S1-mini.",
+    )
+    parser.add_argument(
+        "--no-fish-speaker-tag",
+        action="store_false",
+        default=None,
+        dest="speaker_tag",
+        help="Do not auto-prefix Fish Speech target text with <|speaker:0|>.",
+    )
     parser.add_argument(
         "--subtalker-do-sample",
         nargs="?",
@@ -211,7 +241,12 @@ def synthesize_batches(
             request_reference = normalized_reference
 
         for batch_index, batch in enumerate(chunk_lines(lines, args.batch_size), start=1):
-            batch_texts = [line_spoken_text(line) for line in batch]
+            batch_texts = [
+                fish_line_spoken_text(line, args=args)
+                if args.tts_engine == "fishspeech"
+                else line_spoken_text(line)
+                for line in batch
+            ]
             text_file = temp_dir / f"{safe_filename(speaker_id)}_batch_{batch_index:03d}.txt"
             text_file.write_text("\n".join(batch_texts) + "\n", encoding="utf-8")
 
@@ -299,9 +334,7 @@ def synthesize_line(
     if not reference_text:
         raise SynthesisError(f"empty reference text: {character_dir / 'reference_jp.txt'}")
 
-    text = str(line.get("spokenText") or "").strip()
-    if not text:
-        raise SynthesisError(f"line {line_id} has audio but no spokenText")
+    text = fish_line_spoken_text(line, args=args) if args.tts_engine == "fishspeech" else line_spoken_text(line)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     request_reference = reference_audio
@@ -362,6 +395,74 @@ def line_spoken_text(line: dict[str, Any]) -> str:
     if not text:
         raise SynthesisError(f"line {line_id} has audio but no spokenText")
     return " ".join(text.splitlines())
+
+
+def fish_line_spoken_text(line: dict[str, Any], *, args: argparse.Namespace) -> str:
+    style = first_line_text(
+        line,
+        "fishStyle",
+        "fishEmotion",
+        "ttsStyle",
+        "ttsEmotion",
+        default=getattr(args, "style", None),
+    )
+    style_tag = first_line_text(
+        line,
+        "fishStyleTag",
+        "fishEmotionTag",
+        "ttsStyleTag",
+        "ttsEmotionTag",
+        default=getattr(args, "style_tag", None),
+    )
+    style_syntax = (
+        first_line_text(
+            line,
+            "fishStyleSyntax",
+            "ttsStyleSyntax",
+            default=getattr(args, "style_syntax", None),
+        )
+        or DEFAULT_FISH_STYLE_SYNTAX
+    )
+    speaker_tag_default = getattr(args, "speaker_tag", None)
+    speaker_tag = line_bool(
+        line,
+        "fishSpeakerTag",
+        "ttsSpeakerTag",
+        default=True if speaker_tag_default is None else speaker_tag_default,
+    )
+    return format_fish_speech_text(
+        line_spoken_text(line),
+        style=style,
+        style_tag=style_tag,
+        style_syntax=style_syntax,
+        speaker_tag=speaker_tag,
+    )
+
+
+def first_line_text(line: dict[str, Any], *keys: str, default: str | None = None) -> str | None:
+    for key in keys:
+        value = line.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return default
+
+
+def line_bool(line: dict[str, Any], *keys: str, default: bool) -> bool:
+    for key in keys:
+        if key not in line:
+            continue
+        value = line[key]
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            try:
+                return parse_bool(value)
+            except argparse.ArgumentTypeError as exc:
+                line_id = str(line.get("id") or "")
+                raise SynthesisError(f"line {line_id} has invalid {key}: {value!r}") from exc
+        line_id = str(line.get("id") or "")
+        raise SynthesisError(f"line {line_id} has invalid {key}: {value!r}")
+    return default
 
 
 def safe_filename(value: str) -> str:

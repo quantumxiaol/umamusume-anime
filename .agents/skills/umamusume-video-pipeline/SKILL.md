@@ -37,9 +37,37 @@ Each line should use these fields:
 - `characters`: optional list of on-screen sprites; use `slot` values `left`, `right`, `center_left`, `center_right`, `center`.
 - `characters[].spriteScale`: optional base scale only for special framing. Do not use it to mark the speaking character.
 - `audio`: only for voiced character lines, usually `draft/<project>_audio/<line_id>.wav`.
-- `spokenText`: text sent to TTS.
+- `spokenText`: text sent to TTS. For Fish Speech, put inline emotion/style tags here when a line needs per-line control, for example `[excited][pitch up]ブーケちゃん、そこは負けないんだ`.
 - `subtitleJa` and `subtitleZh`: two-line bilingual subtitles.
 - `showSpeaker: false`: for trainer or other non-visual speakers.
+
+For Fish Speech scripts, prefer inline tags at the start of `spokenText` and keep subtitles clean:
+
+```json
+{
+  "spokenText": "[soft tone]午後の庭園で、トレーナーは久しぶりに肩の力を抜いていた",
+  "subtitleJa": "午後の庭園で、トレーナーは久しぶりに肩の力を抜いていた",
+  "subtitleZh": "午后的庭园里，训练员久违地放松了紧绷的肩膀"
+}
+```
+
+Do not put `<|speaker:0|>` into normal script JSON; the Fish Speech client adds it before sending requests. Existing inline Fish style tags in `spokenText` are preserved, and global `--fish-style` is only inserted when no leading style tag exists.
+
+Fish Speech tags are not a closed enum, especially with S2-Pro natural-language bracket tags, but a small stable set is more predictable for anime dialogue:
+
+| Use case | Recommended S2-Pro tag | Notes |
+| --- | --- | --- |
+| bright greeting / normal cheerful line | `[bright and cheerful tone]` | Good default for upbeat character dialogue. |
+| cute delighted line | `[delighted][pitch up]` | Good for Curren-like cute greetings, playful discoveries, and light affection. |
+| energetic but not shouting | `[excited]` | First choice before trying volume changes. |
+| stronger energetic line | `[excited][volume up]` | Use sparingly; can become too forceful. |
+| confident declaration | `[confident]` | Good for rivalry, promises, and proud remarks. |
+| teasing / playful | `[playful tone]` | Good for light teasing; avoid on serious lines. |
+| gentle / caring | `[soft tone]` | Good for tea, comfort, reflection, and narration. |
+| quick / hurried | `[in a hurry tone]` | Good for flustered or fast-paced lines. |
+| small surprise | `[surprised][pitch up]` | Use on short reactions; can be unstable on long lines. |
+
+Use at most 1-2 tags for most lines. Prefer tone/pitch tags over aggressive tags such as `[shouting]` or `[screaming]`, unless the story really needs it. If a tag makes the voice drift or sound overacted, remove the second tag first, then lower sampling to about `--temperature 0.85 --top-p 0.9`.
 
 Trainer and narration can be voiced if they have `characters/<speaker_id>/reference.mp3` or `reference.wav`.
 
@@ -168,6 +196,30 @@ uv run python scripts/synthesize_script.py \
   --max-new-tokens 512
 ```
 
+Fish Speech target text is normalized before the request:
+
+- `<|speaker:0|>` is automatically added unless `--no-fish-speaker-tag` is passed.
+- Preferred per-line control is to put Fish Speech tags directly in `spokenText`, for example `[excited][pitch up]...` or `[soft tone]...`.
+- `--fish-style <preset>` inserts a batch-default inline emotion/style tag only when `spokenText` does not already start with a style tag. For S2-Pro, the default syntax is `s2`, so `--fish-style energetic` becomes `[excited][volume up]`. For S1-mini, pass `--fish-style-syntax s1` to use tags like `(excited)`.
+- Use `--fish-style-tag '[excited][pitch up]'` to pass an exact inline tag.
+- Per-line script fields also work as a structured alternative: `fishStyle`, `fishEmotion`, `fishStyleTag`, and `fishStyleSyntax`.
+
+Good first-pass Fish Speech S2-Pro settings for livelier anime dialogue:
+
+```bash
+uv run python scripts/synthesize_script.py \
+  --script draft/endday_final_script.json \
+  --tts-engine fishspeech \
+  --fish-tts-url http://127.0.0.1:8002 \
+  --timeout 900 \
+  --batch-size 4 \
+  --fish-style energetic \
+  --fish-style-syntax s2 \
+  --temperature 0.9 \
+  --top-p 0.9 \
+  --max-new-tokens 512
+```
+
 If Fish Speech is running on `8001`, use:
 
 ```bash
@@ -209,7 +261,7 @@ uv run python scripts/synthesize_script.py \
 Backend-specific notes:
 
 - Qwen3-TTS supports `--language`, `--non-streaming-mode`, `--do-sample`, `--top-k`, and `--subtalker-*`.
-- Fish Speech supports `--temperature`, `--top-p`, `--max-new-tokens`, `--chunk-length`, `--seed`, `--use-memory-cache`, and `--fish-format`.
+- Fish Speech supports `--temperature`, `--top-p`, `--max-new-tokens`, `--chunk-length`, `--seed`, `--use-memory-cache`, `--fish-format`, and Fish-side text style flags like `--fish-style`.
 - Do not pass Qwen-only tuning flags expecting Fish Speech to use them.
 - Fish Speech S2 Pro can be slower and memory-heavy; prefer short lines, smaller batches, and explicit `--max-new-tokens`.
 - If a short line sounds unstable, use the same repair approach as Qwen: regenerate, rephrase, or generate with a context lead-in and cut the target sentence.

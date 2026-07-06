@@ -226,11 +226,39 @@ speakerId   角色 ID，对应 characters/<speaker_id>/
 background  背景别名，对应 background_catalog.json
 characters  当前画面中出现的角色和站位
 audio       需要配音的句子才写
-spokenText  送入 TTS 的文本
+spokenText  送入 TTS 的文本；Fish Speech 可在开头写 [excited]、[soft tone] 等情绪标记
 subtitleJa  日语字幕
 subtitleZh  中文字幕
 showSpeaker false 时不显示说话者立绘，适合训练员
 ```
+
+Fish Speech 的情绪标记只放在 `spokenText`，字幕字段保持干净。例如：
+
+```json
+{
+  "spokenText": "[soft tone]午後の庭園で、トレーナーは久しぶりに肩の力を抜いていた",
+  "subtitleJa": "午後の庭園で、トレーナーは久しぶりに肩の力を抜いていた",
+  "subtitleZh": "午后的庭园里，训练员久违地放松了紧绷的肩膀"
+}
+```
+
+不用在剧本里写 `<|speaker:0|>`；Fish Speech client 会在请求前自动补。
+
+Fish Speech S2-Pro 的方括号 tag 不是严格枚举，模型可以理解不少自然语言描述；但实际批量生产时，先用一小组稳定 tag 会更可控：
+
+| 场景 | 推荐 tag | 备注 |
+| --- | --- | --- |
+| 明亮问候 / 普通活泼 | `[bright and cheerful tone]` | 适合作为开场和日常对白默认值 |
+| 可爱开心 / 轻微撒娇 | `[delighted][pitch up]` | 适合真机伶这类可爱发现、亲昵称呼 |
+| 有精神但不喊 | `[excited]` | 比加音量更稳 |
+| 更强的元气感 | `[excited][volume up]` | 少量使用，容易过强 |
+| 自信宣言 | `[confident]` | 适合胜负、承诺、得意发言 |
+| 打趣 / 调皮 | `[playful tone]` | 适合轻微捉弄，不适合严肃句 |
+| 温柔 / 关心 / 旁白 | `[soft tone]` | 适合茶会、安慰、缓慢叙述 |
+| 慌张 / 节奏快 | `[in a hurry tone]` | 适合短句，不宜长段 |
+| 轻微惊喜 | `[surprised][pitch up]` | 适合短反应，长句可能不稳 |
+
+多数句子用 1-2 个 tag 就够了。优先使用 tone / pitch 类，不要一上来用 `[shouting]`、`[screaming]` 这类强标签；如果声音飘或表演过头，先删第二个 tag，再把采样降到大约 `--temperature 0.85 --top-p 0.9`。
 
 训练员和旁白可以没有 `audio`。没有音频时，导演层会用文本长度估算持续时间。
 
@@ -311,6 +339,34 @@ uv run python scripts/synthesize_script.py \
   --temperature 0.7 \
   --top-p 0.8
 ```
+
+Fish Speech 目标文本会默认自动补 `<|speaker:0|>`。推荐在 script JSON 的 `spokenText` 开头直接写情绪标记，方便批量生成时逐句控制：
+
+```json
+{
+  "id": "cc001",
+  "speakerId": "curren_chan",
+  "spokenText": "[excited][pitch up]ブーケちゃん、そこは負けないんだ",
+  "subtitleJa": "ブーケちゃん、そこは負けないんだ",
+  "subtitleZh": "小花，这一点可不能输哦"
+}
+```
+
+如果整批都想先套一个默认风格，也可以用命令行风格：
+
+```bash
+uv run python scripts/synthesize_script.py \
+  --script draft/endday_final_script.json \
+  --tts-engine fishspeech \
+  --fish-tts-url http://127.0.0.1:8002 \
+  --batch-size 4 \
+  --fish-style energetic \
+  --fish-style-syntax s2 \
+  --temperature 0.9 \
+  --top-p 0.9
+```
+
+常用 `--fish-style` 取值：`bright`、`cute`、`confident`、`energetic`、`excited`、`fast`、`joyful`、`satisfied`、`soft`、`teasing`。S2-Pro 默认用方括号风格标记，例如 `energetic` 会转成 `[excited][volume up]`；如果 `spokenText` 已经以 `[tag]` 或 `(tag)` 开头，client 不会再重复插入命令行风格。`fishStyle`、`fishEmotion`、`fishStyleTag` 这些逐句字段仍然可用，但优先推荐直接写在 `spokenText` 开头。
 
 只重做某个角色：
 

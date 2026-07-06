@@ -139,9 +139,11 @@ uv run my-tts fish voice-clone \
   --base-url http://127.0.0.1:8002 \
   --ref-audio /path/to/reference.mp3 \
   --ref-text "起きたら隣にダイヤちゃんがいるのって、普通のことだけど特別なことでもあるんだな、って。" \
-  --text "よいしょ、もう一本。お助けキタちゃん、今日も元気に行きます。" \
+  --text "[excited][volume up]よいしょ、もう一本。お助けキタちゃん、今日も元気に行きます。" \
   --download-to /tmp/fish-single.wav
 ```
+
+Fish Speech target text defaults to `<|speaker:0|>` prefixing before it is sent to the server. Prefer putting S2-Pro tags directly at the start of target text when you want per-line control, for example `[excited][volume up]...` or `[soft tone]...`. `--style energetic` remains useful as a batch default and becomes `[excited][volume up]`; it is not inserted again if the text already starts with an inline style tag. For S1-mini, pass `--style-syntax s1` to get tags like `(excited)`.
 
 服务级：Fish Speech 批量 voice clone：
 
@@ -152,6 +154,13 @@ uv run my-tts fish voice-clone-batch-file \
   --ref-text "参考音频对应的文本" \
   --text-file /path/to/lines.txt \
   --download-dir /tmp/fish-batch
+```
+
+For batch text files, put one already styled target line per row:
+
+```text
+[excited][pitch up]ブーケちゃん、そこは負けないんだ
+[soft tone]午後の庭園で、トレーナーは久しぶりに肩の力を抜いていた
 ```
 
 服务级：批量 narration：

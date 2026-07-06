@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import math
 import os
@@ -24,6 +25,39 @@ DEFAULT_INDEXTTS_URL = "http://127.0.0.1:8000"
 DEFAULT_QWEN3TTS_URL = "http://127.0.0.1:8001"
 DEFAULT_FISH_TTS_URL = "http://127.0.0.1:8002"
 DEFAULT_REFERENCE_DIR_NAME = "reference-audio"
+DEFAULT_FISH_STYLE_SYNTAX = "s2"
+
+FISH_S1_STYLE_PRESETS = {
+    "neutral": "",
+    "bright": "(joyful)",
+    "cute": "(delighted)",
+    "confident": "(confident)",
+    "delighted": "(delighted)",
+    "energetic": "(excited)",
+    "excited": "(excited)",
+    "fast": "(in a hurry tone)",
+    "joyful": "(joyful)",
+    "satisfied": "(satisfied)",
+    "soft": "(soft tone)",
+}
+
+FISH_S2_STYLE_PRESETS = {
+    "neutral": "",
+    "bright": "[bright and cheerful tone]",
+    "cute": "[delighted][pitch up]",
+    "confident": "[confident]",
+    "delighted": "[delighted]",
+    "energetic": "[excited][volume up]",
+    "excited": "[excited]",
+    "fast": "[in a hurry tone]",
+    "joyful": "[joyful]",
+    "satisfied": "[satisfied]",
+    "soft": "[soft tone]",
+    "teasing": "[playful tone]",
+}
+
+FISH_SPEAKER_RE = re.compile(r"^(<\|speaker:\d+\|>)(.*)$", re.DOTALL)
+FISH_INLINE_STYLE_RE = re.compile(r"^\s*(?:\([^)]{1,80}\)|(?:\[[^\]]{1,80}\])+)")
 
 
 class CliError(RuntimeError):
@@ -39,6 +73,118 @@ class ProjectPaths:
     audio_dir: Path
     image_dir: Path
     reference_audio_dir: Path
+
+
+def validate_no_replacement_char(field_name: str, value: str) -> None:
+    if "\ufffd" in value:
+        raise CliError(f"{field_name} contains U+FFFD replacement character; check UTF-8 decoding")
+
+
+def resolve_fish_style_tag(
+    *,
+    style: str | None = None,
+    style_tag: str | None = None,
+    style_syntax: str = DEFAULT_FISH_STYLE_SYNTAX,
+) -> str:
+    if style_tag:
+        return style_tag.strip()
+
+    if not style:
+        return ""
+
+    normalized = style.strip()
+    if not normalized or normalized == "neutral":
+        return ""
+    if normalized.startswith(("(", "[")):
+        return normalized
+
+    syntax = style_syntax.strip().lower()
+    if syntax == "s1":
+        return FISH_S1_STYLE_PRESETS.get(normalized, f"({normalized})")
+    if syntax == "s2":
+        return FISH_S2_STYLE_PRESETS.get(normalized, f"[{normalized}]")
+    raise CliError(f"unsupported Fish Speech style syntax: {style_syntax}")
+
+
+def format_fish_speech_text(
+    text: str,
+    *,
+    style: str | None = None,
+    style_tag: str | None = None,
+    style_syntax: str = DEFAULT_FISH_STYLE_SYNTAX,
+    speaker_tag: bool = True,
+) -> str:
+    validate_no_replacement_char("text", text)
+    stripped = text.strip()
+    if not stripped:
+        return stripped
+
+    speaker_prefix = ""
+    body = stripped
+    match = FISH_SPEAKER_RE.match(stripped)
+    if match:
+        speaker_prefix = match.group(1)
+        body = match.group(2).lstrip()
+    elif speaker_tag:
+        speaker_prefix = "<|speaker:0|>"
+
+    tag = resolve_fish_style_tag(style=style, style_tag=style_tag, style_syntax=style_syntax)
+    if tag and not FISH_INLINE_STYLE_RE.match(body):
+        separator = "" if tag.startswith("[") or tag.endswith((" ", "\t", "\n")) else " "
+        body = f"{tag}{separator}{body}"
+
+    return f"{speaker_prefix}{body}"
+
+
+def format_fish_speech_text_blob(
+    text: str,
+    *,
+    style: str | None = None,
+    style_tag: str | None = None,
+    style_syntax: str = DEFAULT_FISH_STYLE_SYNTAX,
+    speaker_tag: bool = True,
+) -> str:
+    validate_no_replacement_char("text_file", text)
+    has_trailing_newline = text.endswith(("\n", "\r"))
+    lines = [
+        format_fish_speech_text(
+            line,
+            style=style,
+            style_tag=style_tag,
+            style_syntax=style_syntax,
+            speaker_tag=speaker_tag,
+        )
+        if line.strip()
+        else line
+        for line in text.splitlines()
+    ]
+    formatted = "\n".join(lines)
+    if has_trailing_newline:
+        formatted += "\n"
+    return formatted
+
+
+def make_text_file_upload(
+    path: Path,
+    *,
+    label: str,
+    transform: bool = False,
+    style: str | None = None,
+    style_tag: str | None = None,
+    style_syntax: str = DEFAULT_FISH_STYLE_SYNTAX,
+    speaker_tag: bool = True,
+) -> tuple[str, io.BytesIO, str]:
+    contents = path.read_text(encoding="utf-8")
+    validate_no_replacement_char(label, contents)
+    if transform:
+        contents = format_fish_speech_text_blob(
+            contents,
+            style=style,
+            style_tag=style_tag,
+            style_syntax=style_syntax,
+            speaker_tag=speaker_tag,
+        )
+    return (path.name, io.BytesIO(contents.encode("utf-8")), "text/plain")
 
 
 class IndexTTSClient:
@@ -322,6 +468,10 @@ class FishSpeechClient:
         ref_text_file: Path | None = None,
         output_name: str | None = None,
         audio_format: str = "wav",
+        style: str | None = None,
+        style_tag: str | None = None,
+        style_syntax: str = DEFAULT_FISH_STYLE_SYNTAX,
+        speaker_tag: bool = True,
         **gen_kwargs: Any,
     ) -> dict[str, Any]:
         with ExitStack() as stack:
@@ -335,23 +485,30 @@ class FishSpeechClient:
             }
 
             if text is not None:
-                data["text"] = text
+                data["text"] = format_fish_speech_text(
+                    text,
+                    style=style,
+                    style_tag=style_tag,
+                    style_syntax=style_syntax,
+                    speaker_tag=speaker_tag,
+                )
             if ref_text is not None:
+                validate_no_replacement_char("ref_text", ref_text)
                 data["ref_text"] = ref_text
             if output_name is not None:
                 data["output_name"] = output_name
             if text_file is not None:
-                files["text_file"] = (
-                    text_file.name,
-                    stack.enter_context(text_file.open("rb")),
-                    "text/plain",
+                files["text_file"] = make_text_file_upload(
+                    text_file,
+                    label="text_file",
+                    transform=True,
+                    style=style,
+                    style_tag=style_tag,
+                    style_syntax=style_syntax,
+                    speaker_tag=speaker_tag,
                 )
             if ref_text_file is not None:
-                files["ref_text_file"] = (
-                    ref_text_file.name,
-                    stack.enter_context(ref_text_file.open("rb")),
-                    "text/plain",
-                )
+                files["ref_text_file"] = make_text_file_upload(ref_text_file, label="ref_text_file")
             for key, value in gen_kwargs.items():
                 if value is not None:
                     data[key] = _form_value(value)
@@ -369,6 +526,10 @@ class FishSpeechClient:
         ref_text_file: Path | None = None,
         output_prefix: str | None = None,
         audio_format: str = "wav",
+        style: str | None = None,
+        style_tag: str | None = None,
+        style_syntax: str = DEFAULT_FISH_STYLE_SYNTAX,
+        speaker_tag: bool = True,
         **gen_kwargs: Any,
     ) -> dict[str, Any]:
         if text_file is not None and texts:
@@ -386,23 +547,33 @@ class FishSpeechClient:
                 )
             }
             if text_file is not None:
-                files["text_file"] = (
-                    text_file.name,
-                    stack.enter_context(text_file.open("rb")),
-                    "text/plain",
+                files["text_file"] = make_text_file_upload(
+                    text_file,
+                    label="text_file",
+                    transform=True,
+                    style=style,
+                    style_tag=style_tag,
+                    style_syntax=style_syntax,
+                    speaker_tag=speaker_tag,
                 )
             if texts:
-                data["text"] = list(texts)
+                data["text"] = [
+                    format_fish_speech_text(
+                        text,
+                        style=style,
+                        style_tag=style_tag,
+                        style_syntax=style_syntax,
+                        speaker_tag=speaker_tag,
+                    )
+                    for text in texts
+                ]
             if ref_text is not None:
+                validate_no_replacement_char("ref_text", ref_text)
                 data["ref_text"] = ref_text
             if output_prefix is not None:
                 data["output_prefix"] = output_prefix
             if ref_text_file is not None:
-                files["ref_text_file"] = (
-                    ref_text_file.name,
-                    stack.enter_context(ref_text_file.open("rb")),
-                    "text/plain",
-                )
+                files["ref_text_file"] = make_text_file_upload(ref_text_file, label="ref_text_file")
             for key, value in gen_kwargs.items():
                 if value is not None:
                     data[key] = _form_value(value)
@@ -646,6 +817,36 @@ def add_fish_generation_args(parser: argparse.ArgumentParser, prefix: str = "") 
     parser.add_argument(f"--{prefix}temperature", type=float, dest=f"{prefix_to_dest(prefix)}temperature")
     parser.add_argument(f"--{prefix}repetition-penalty", type=float, dest=f"{prefix_to_dest(prefix)}repetition_penalty")
     parser.add_argument(f"--{prefix}seed", type=int, dest=f"{prefix_to_dest(prefix)}seed")
+    parser.add_argument(
+        f"--{prefix}style",
+        dest=f"{prefix_to_dest(prefix)}style",
+        help=(
+            "Fish Speech style preset or inline tag. Presets include bright, cute, confident, "
+            "energetic, excited, fast, joyful, satisfied, soft, and teasing."
+        ),
+    )
+    parser.add_argument(
+        f"--{prefix}style-tag",
+        dest=f"{prefix_to_dest(prefix)}style_tag",
+        help="Raw Fish Speech inline style tag, for example '[excited][pitch up]' or '(excited)'.",
+    )
+    parser.add_argument(
+        f"--{prefix}style-syntax",
+        choices=("s1", "s2"),
+        default=None,
+        dest=f"{prefix_to_dest(prefix)}style_syntax",
+        help="Inline style syntax for --style presets. Use s2 for S2-Pro and s1 for S1-mini.",
+    )
+    no_speaker_tag_flags = [f"--{prefix}no-speaker-tag"]
+    if prefix:
+        no_speaker_tag_flags.append(f"--no-{prefix}speaker-tag")
+    parser.add_argument(
+        *no_speaker_tag_flags,
+        action="store_false",
+        default=None,
+        dest=f"{prefix_to_dest(prefix)}speaker_tag",
+        help="Do not auto-prefix Fish Speech target text with <|speaker:0|>.",
+    )
     parser.add_argument(
         f"--{prefix}use-memory-cache",
         choices=("on", "off"),
@@ -1006,6 +1207,10 @@ def extract_fish_gen_kwargs(args: argparse.Namespace, prefix: str = "") -> dict[
         "repetition_penalty": getattr(args, f"{key_prefix}repetition_penalty", None),
         "seed": getattr(args, f"{key_prefix}seed", None),
         "use_memory_cache": getattr(args, f"{key_prefix}use_memory_cache", None),
+        "style": getattr(args, f"{key_prefix}style", None),
+        "style_tag": getattr(args, f"{key_prefix}style_tag", None),
+        "style_syntax": getattr(args, f"{key_prefix}style_syntax", None),
+        "speaker_tag": getattr(args, f"{key_prefix}speaker_tag", None),
     }
     return {key: value for key, value in kwargs.items() if value is not None}
 
