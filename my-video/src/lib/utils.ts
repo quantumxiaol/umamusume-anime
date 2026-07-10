@@ -1,6 +1,6 @@
 import { staticFile } from "remotion";
 import { DEFAULT_FPS, introDurationFrames } from "./constants";
-import { BackgroundElement, Timeline } from "./types";
+import { BackgroundElement, TimelineSchema } from "./types";
 
 export const loadTimelineFromFile = async (
   filename: string,
@@ -8,7 +8,7 @@ export const loadTimelineFromFile = async (
 ) => {
   const res = await fetch(staticFile(filename));
   const json = await res.json();
-  const timeline = json as Timeline;
+  const timeline = TimelineSchema.parse(json);
   timeline.elements.sort((a, b) => a.startMs - b.startMs);
 
   const lengthMs =

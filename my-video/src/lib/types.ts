@@ -25,15 +25,27 @@ const BackgroundElementSchema = TimelineElementSchema.extend({
   animations: z.array(ElementAnimationSchema).optional(),
 });
 
+const SubtitleKindSchema = z.enum(["dialogue", "narration"]);
+
+const SubtitlePositionSchema = z.enum(["top", "bottom", "center"]);
+
 const TextElementSchema = TimelineElementSchema.extend({
-  text: z.string(),
-  position: z.union([
-    z.literal("top"),
-    z.literal("bottom"),
-    z.literal("center"),
-  ]),
+  id: z.string().optional(),
+  kind: SubtitleKindSchema.optional(),
+  speakerId: z.string().optional(),
+  speakerLabel: z.string().optional(),
+  subtitleJa: z.string().optional(),
+  subtitleZh: z.string().optional(),
+  text: z.string().optional(),
+  position: SubtitlePositionSchema.optional(),
   animations: z.array(ElementAnimationSchema).optional(),
-});
+}).refine(
+  ({ text, subtitleJa, subtitleZh }) =>
+    Boolean(text?.trim() || subtitleJa?.trim() || subtitleZh?.trim()),
+  {
+    message: "Subtitle requires text, subtitleJa, or subtitleZh",
+  },
+);
 
 const AudioElementSchema = TimelineElementSchema.extend({
   audioUrl: z.string(),
@@ -55,6 +67,8 @@ export type BackgroundTransitionType = z.infer<
 export type TimelineElement = z.infer<typeof TimelineElementSchema>;
 export type ElementAnimation = z.infer<typeof ElementAnimationSchema>;
 export type BackgroundElement = z.infer<typeof BackgroundElementSchema>;
+export type SubtitleKind = z.infer<typeof SubtitleKindSchema>;
+export type SubtitlePosition = z.infer<typeof SubtitlePositionSchema>;
 export type TextElement = z.infer<typeof TextElementSchema>;
 export type AudioElement = z.infer<typeof AudioElementSchema>;
 export type Timeline = z.infer<typeof TimelineSchema>;
@@ -64,6 +78,8 @@ export {
   BackgroundElementSchema,
   BackgroundTransitionTypeSchema,
   ElementAnimationSchema,
+  SubtitleKindSchema,
+  SubtitlePositionSchema,
   TextElementSchema,
   TimelineElementSchema,
   TimelineSchema,

@@ -5,6 +5,7 @@ import json
 import shutil
 import subprocess
 import sys
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,8 @@ DEFAULT_SPRITE_SCALE = 0.92
 ACTIVE_SPRITE_SCALE_MULTIPLIER = 1.04
 INACTIVE_SPRITE_SCALE_MULTIPLIER = 0.97
 INACTIVE_SPRITE_BRIGHTNESS = 0.68
+MAX_SUBTITLE_LINES = 2
+MAX_SUBTITLE_DISPLAY_WIDTH = 108
 
 
 class DirectorError(RuntimeError):
@@ -113,6 +116,8 @@ def build_project(args: argparse.Namespace) -> None:
         "shortTitle": str(script.get("title") or project),
         "content": [],
     }
+    characters_root = Path(args.characters_root)
+    speaker_label_cache: dict[str, str] = {}
 
     current_ms = 0
     for index, line in enumerate(lines, start=1):
@@ -131,7 +136,7 @@ def build_project(args: argparse.Namespace) -> None:
             line=line,
             destination=image_path,
             catalog=catalog,
-            characters_root=Path(args.characters_root),
+            characters_root=characters_root,
             repo_root=repo_root,
             canvas_size=canvas_size,
             auto_focus=not args.no_auto_focus,
@@ -152,21 +157,21 @@ def build_project(args: argparse.Namespace) -> None:
         if audio_path.exists():
             timeline["audio"].append({"startMs": start_ms, "endMs": end_ms, "audioUrl": line_id})
 
-        subtitle = format_subtitle(line)
-        if subtitle:
-            timeline["text"].append(
-                {
-                    "startMs": start_ms,
-                    "endMs": end_ms,
-                    "text": subtitle,
-                    "position": "center",
-                }
-            )
+        subtitle_element = build_subtitle_element(
+            line=line,
+            line_id=line_id,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            characters_root=characters_root,
+            speaker_label_cache=speaker_label_cache,
+        )
+        if subtitle_element is not None:
+            timeline["text"].append(subtitle_element)
 
         descriptor["content"].append(
             {
                 "uid": line_id,
-                "text": str(line.get("spokenText") or subtitle or ""),
+                "text": descriptor_text(line),
                 "imageDescription": str(line.get("background") or ""),
                 "durationMs": duration_ms,
             }
@@ -418,27 +423,144 @@ def estimated_duration_ms(line: dict[str, Any]) -> int:
     return max(DEFAULT_LINE_DURATION_MS, len(text) * 180)
 
 
-def format_subtitle(line: dict[str, Any]) -> str:
-    if line.get("subtitle"):
-        subtitle = str(line["subtitle"]).strip()
-        return prefix_subtitle(line=line, subtitle=subtitle)
-    parts = [str(line.get("subtitleJa") or "").strip(), str(line.get("subtitleZh") or "").strip()]
-    parts = [part for part in parts if part]
-    if parts:
-        return prefix_subtitle(line=line, subtitle="\n".join(parts))
-    return prefix_subtitle(line=line, subtitle=str(line.get("spokenText") or "").strip())
+def build_subtitle_element(
+    *,
+    line: dict[str, Any],
+    line_id: str,
+    start_ms: int,
+    end_ms: int,
+    characters_root: Path,
+    speaker_label_cache: dict[str, str] | None = None,
+) -> dict[str, Any] | None:
+    kind = "narration" if str(line.get("type") or "").strip().lower() == "narration" else "dialogue"
+    speaker_id = clean_text(line.get("speakerId"))
+    speaker_label = resolve_speaker_label(
+        line=line,
+        characters_root=characters_root,
+        cache=speaker_label_cache,
+    )
+    if kind == "dialogue" and not speaker_label:
+        speaker_description = speaker_id or "<missing>"
+        print(
+            f"warning: line {line_id}: dialogue speaker has no label (speakerId={speaker_description})",
+            file=sys.stderr,
+        )
+
+    subtitle_ja, subtitle_zh = structured_subtitle_text(line)
+    if not subtitle_ja and not subtitle_zh:
+        return None
+
+    warn_if_subtitle_is_too_long(line_id=line_id, field="subtitleJa", text=subtitle_ja)
+    warn_if_subtitle_is_too_long(line_id=line_id, field="subtitleZh", text=subtitle_zh)
+
+    item: dict[str, Any] = {
+        "id": line_id,
+        "startMs": start_ms,
+        "endMs": end_ms,
+        "kind": kind,
+        "position": "bottom",
+    }
+    if speaker_id:
+        item["speakerId"] = speaker_id
+    if speaker_label:
+        item["speakerLabel"] = speaker_label
+    if subtitle_ja:
+        item["subtitleJa"] = subtitle_ja
+    if subtitle_zh:
+        item["subtitleZh"] = subtitle_zh
+    return item
 
 
-def prefix_subtitle(*, line: dict[str, Any], subtitle: str) -> str:
-    if not subtitle:
+def structured_subtitle_text(line: dict[str, Any]) -> tuple[str, str]:
+    subtitle_ja = clean_text(line.get("subtitleJa"))
+    subtitle_zh = clean_text(line.get("subtitleZh"))
+    if subtitle_ja or subtitle_zh:
+        return subtitle_ja, subtitle_zh
+
+    # Older scripts used one untyped subtitle field. spokenText is normally
+    # Japanese, so keep the legacy text intact in the primary subtitle slot.
+    fallback = clean_text(line.get("subtitle")) or clean_text(line.get("spokenText"))
+    return fallback, ""
+
+
+def resolve_speaker_label(
+    *,
+    line: dict[str, Any],
+    characters_root: Path,
+    cache: dict[str, str] | None = None,
+) -> str:
+    explicit_label = clean_text(line.get("speakerLabel"))
+    if explicit_label:
+        return explicit_label
+
+    speaker_id = clean_text(line.get("speakerId"))
+    config_label = character_config_label(
+        speaker_id=speaker_id,
+        characters_root=characters_root,
+        cache=cache,
+    )
+    if config_label:
+        return config_label
+    return default_speaker_label(line)
+
+
+def character_config_label(
+    *,
+    speaker_id: str,
+    characters_root: Path,
+    cache: dict[str, str] | None = None,
+) -> str:
+    if not speaker_id:
         return ""
-    label = line.get("speakerLabel")
-    if label is None:
-        label = default_speaker_label(line)
-    label_text = str(label or "").strip()
-    if not label_text:
-        return subtitle
-    return f"{label_text}: {subtitle}"
+
+    normalized_speaker_id = normalize_speaker_id(speaker_id)
+    if cache is not None and normalized_speaker_id in cache:
+        return cache[normalized_speaker_id]
+
+    label = ""
+    config_path = characters_root / normalized_speaker_id / "config.json"
+    if config_path.is_file():
+        try:
+            label = clean_text(read_json(config_path).get("name_zh"))
+        except DirectorError as exc:
+            print(f"warning: could not read speaker label from {config_path}: {exc}", file=sys.stderr)
+
+    if cache is not None:
+        cache[normalized_speaker_id] = label
+    return label
+
+
+def descriptor_text(line: dict[str, Any]) -> str:
+    subtitle_ja, subtitle_zh = structured_subtitle_text(line)
+    return clean_text(line.get("spokenText")) or subtitle_ja or subtitle_zh
+
+
+def clean_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def subtitle_display_width(text: str) -> int:
+    return sum(
+        0 if unicodedata.combining(character) else 2 if unicodedata.east_asian_width(character) in {"W", "F", "A"} else 1
+        for character in text
+        if character not in {"\r", "\n"}
+    )
+
+
+def warn_if_subtitle_is_too_long(*, line_id: str, field: str, text: str) -> None:
+    if not text:
+        return
+    manual_lines = text.splitlines() or [text]
+    display_width = subtitle_display_width(text)
+    if len(manual_lines) <= MAX_SUBTITLE_LINES and display_width <= MAX_SUBTITLE_DISPLAY_WIDTH:
+        return
+    print(
+        f"warning: line {line_id}: {field} is likely too long "
+        f"(display width {display_width}, manual lines {len(manual_lines)}); text was kept unchanged",
+        file=sys.stderr,
+    )
 
 
 def default_speaker_label(line: dict[str, Any]) -> str:

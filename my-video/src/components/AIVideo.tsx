@@ -88,7 +88,7 @@ export const AIVideo: React.FC<z.infer<typeof aiVideoSchema>> = ({
             from={startFrame}
             durationInFrames={duration}
           >
-            <Subtitle key={index} text={element.text} />
+            <Subtitle item={element} durationInFrames={duration} />
           </Sequence>
         );
       })}

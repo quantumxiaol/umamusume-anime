@@ -8,18 +8,12 @@ importers:
 
   .:
     dependencies:
-      '@remotion/animation-utils':
-        specifier: 4.0.451
-        version: 4.0.451(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@remotion/cli':
         specifier: 4.0.451
         version: 4.0.451(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@remotion/google-fonts':
         specifier: 4.0.451
         version: 4.0.451(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
-      '@remotion/layout-utils':
-        specifier: 4.0.451
-        version: 4.0.451
       '@remotion/media':
         specifier: 4.0.451
         version: 4.0.451(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -564,12 +558,6 @@ packages:
     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
     engines: {node: '>= 8'}
 
-  '@remotion/animation-utils@4.0.451':
-    resolution: {integrity: sha512-RG0dKB2bSa/QD9pkW/XYsEHCHdCsd/5YsFKFOmqI9olMRau85ad6tX+Symjndk9O/Av7j9cHCw5MW6n6NuVLdg==}
-    peerDependencies:
-      react: '>=16.8.0'
-      react-dom: '>=16.8.0'
-
   '@remotion/bundler@4.0.451':
     resolution: {integrity: sha512-/E4lXcFWR1uuv9qmnkV7cqTRH39jSpTpfzk56JOhhvLiWwdaFXGVaoEKJD0XO9/M5IqNYXuqVgDXcEqlTpeFaQ==}
     peerDependencies:
@@ -625,9 +613,6 @@ packages:
 
   '@remotion/google-fonts@4.0.451':
     resolution: {integrity: sha512-8JBPRQmLX7PKaz8bvkXq7fARzH8DbDM2NgSfV7buhyRVlewsdLfWioZdn1woqMcY9y5Ik6APtxWOrWuF8acEig==}
-
-  '@remotion/layout-utils@4.0.451':
-    resolution: {integrity: sha512-Nm8O/MOMd63qeHa3HvBn5G72dMmzfsAwJKbFk+HQC7WgoyOXFVuM9GBCp4U/vaOuSYd3HejYFqg+iy/nz+lB3Q==}
 
   '@remotion/licensing@4.0.451':
     resolution: {integrity: sha512-LQKL1gKZEWY71ueW+cSTFP3pR/kbNfzoOgu+pplYMPXLf/jtNrlkDW5cr6Bnl5xtSUQczrP3L8J18gwCi2kH7Q==}
@@ -2390,12 +2375,6 @@ snapshots:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.20.1
 
-  '@remotion/animation-utils@4.0.451(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
-    dependencies:
-      react: 19.2.3
-      react-dom: 19.2.3(react@19.2.3)
-      remotion: 4.0.451(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
-
   '@remotion/bundler@4.0.451(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
     dependencies:
       '@remotion/media-parser': 4.0.451
@@ -2484,8 +2463,6 @@ snapshots:
     transitivePeerDependencies:
       - react
       - react-dom
-
-  '@remotion/layout-utils@4.0.451': {}
 
   '@remotion/licensing@4.0.451': {}
 
