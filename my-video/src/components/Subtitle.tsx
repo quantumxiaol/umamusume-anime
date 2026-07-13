@@ -51,7 +51,8 @@ const Subtitle: React.FC<{
         );
   const dividerProgress =
     dividerEnd === 0 ? 1 : interpolate(frame, [0, dividerEnd], [0, 1], clamp);
-  const hasSpeaker = Boolean(subtitle.speakerLabel);
+  const hasSpeaker =
+    subtitle.kind !== "narration" && Boolean(subtitle.speakerLabel);
   const hasJa = Boolean(subtitle.subtitleJa);
   const hasZh = Boolean(subtitle.subtitleZh);
 

@@ -61,8 +61,12 @@ export const Background: React.FC<{
           position: "absolute",
           top,
           left,
-          filter: `blur(${currentBlur}px)`,
-          WebkitFilter: `blur(${currentBlur}px)`,
+          ...(currentBlur > 0
+            ? {
+                filter: `blur(${currentBlur}px)`,
+                WebkitFilter: `blur(${currentBlur}px)`,
+              }
+            : {}),
         }}
       />
     </AbsoluteFill>
