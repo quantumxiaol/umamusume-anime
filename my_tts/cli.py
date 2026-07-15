@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import io
 import json
 import math
@@ -10,16 +11,20 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Sequence
+from urllib.parse import urlsplit
 
 import httpx
 
 QWEN_API_PREFIX = "/qwen3tts"
 FISH_API_PREFIX = "/fishspeech"
+ADMIN_SHUTDOWN_HEADER = "X-Fish-Speech-Admin"
+ADMIN_SHUTDOWN_VALUE = "shutdown"
 DEFAULT_CONTENT_ROOT = Path("my-video") / "public" / "content"
 DEFAULT_INDEXTTS_URL = "http://127.0.0.1:8000"
 DEFAULT_QWEN3TTS_URL = "http://127.0.0.1:8001"
@@ -433,11 +438,17 @@ class Qwen3TTSClient:
 
 
 class FishSpeechClient:
-    def __init__(self, base_url: str, timeout: float) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        timeout: float,
+        client: httpx.Client | None = None,
+    ) -> None:
         normalized = base_url.rstrip("/")
         if normalized.endswith(FISH_API_PREFIX):
             normalized = normalized[: -len(FISH_API_PREFIX)]
-        self._client = httpx.Client(base_url=normalized, timeout=timeout)
+        self._base_url = normalized
+        self._client = client or httpx.Client(base_url=normalized, timeout=timeout)
 
     def close(self) -> None:
         self._client.close()
@@ -457,6 +468,63 @@ class FishSpeechClient:
 
     def health(self) -> dict[str, Any]:
         return self._json(self._client.get(f"{FISH_API_PREFIX}/health"))
+
+    def shutdown(
+        self,
+        *,
+        wait: bool = False,
+        wait_timeout: float = 30.0,
+    ) -> dict[str, Any]:
+        if not is_loopback_http_url(self._base_url):
+            raise CliError(
+                "Fish Speech shutdown is restricted to a loopback base URL "
+                "(for example http://127.0.0.1:8002)"
+            )
+
+        payload = self._json(
+            self._client.post(
+                f"{FISH_API_PREFIX}/admin/shutdown",
+                headers={
+                    ADMIN_SHUTDOWN_HEADER: ADMIN_SHUTDOWN_VALUE,
+                    "Connection": "close",
+                },
+            )
+        )
+        if wait:
+            self.wait_until_stopped(timeout=wait_timeout)
+            payload["server_stopped"] = True
+        return payload
+
+    def wait_until_stopped(self, timeout: float = 30.0) -> None:
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("timeout must be a finite number greater than 0")
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            remaining = deadline - time.monotonic()
+            try:
+                response = self._client.get(
+                    f"{FISH_API_PREFIX}/health",
+                    headers={"Connection": "close"},
+                    timeout=max(min(remaining, 1.0), 0.05),
+                )
+                if response.status_code != 200:
+                    return
+                try:
+                    health = response.json()
+                except ValueError:
+                    return
+                if not isinstance(health, dict) or health.get("status") != "ok":
+                    return
+            except (httpx.ConnectError, httpx.RemoteProtocolError):
+                return
+            except httpx.TimeoutException:
+                pass
+            time.sleep(min(0.2, max(remaining, 0.0)))
+
+        raise CliError(
+            f"Fish Speech server still responds after waiting {timeout:.1f} seconds for shutdown"
+        )
 
     def voice_clone(
         self,
@@ -664,6 +732,23 @@ def build_parser() -> argparse.ArgumentParser:
     fish_health = fish_subparsers.add_parser("health", help="Call GET /fishspeech/health.")
     add_fish_common_args(fish_health)
 
+    fish_shutdown = fish_subparsers.add_parser(
+        "shutdown",
+        help="Gracefully stop a loopback Fish Speech server and wait for it to exit.",
+    )
+    add_fish_common_args(fish_shutdown)
+    fish_shutdown.add_argument(
+        "--wait-timeout",
+        type=positive_float,
+        default=30.0,
+        help="Seconds to wait for the Fish Speech server to stop responding.",
+    )
+    fish_shutdown.add_argument(
+        "--no-wait",
+        action="store_true",
+        help="Return after shutdown is accepted instead of waiting for the server to exit.",
+    )
+
     fish_voice_clone = fish_subparsers.add_parser("voice-clone", help="Call POST /fishspeech/tts/voice_clone.")
     add_fish_common_args(fish_voice_clone)
     add_fish_generation_args(fish_voice_clone)
@@ -870,6 +955,36 @@ def parse_bool(value: str | bool) -> bool:
     raise argparse.ArgumentTypeError(f"expected boolean value, got {value!r}")
 
 
+def positive_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be a finite number greater than 0")
+    return parsed
+
+
+def is_loopback_http_url(base_url: str) -> bool:
+    try:
+        parsed = urlsplit(base_url)
+        host = parsed.hostname
+    except ValueError:
+        return False
+    if parsed.scheme not in {"http", "https"} or not host:
+        return False
+
+    normalized_host = host.rstrip(".").casefold()
+    if normalized_host == "localhost":
+        return True
+
+    try:
+        address = ipaddress.ip_address(normalized_host.split("%", 1)[0])
+    except ValueError:
+        return False
+    if address.is_loopback:
+        return True
+    mapped = getattr(address, "ipv4_mapped", None)
+    return bool(mapped and mapped.is_loopback)
+
+
 def _form_value(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
@@ -1034,6 +1149,15 @@ def cmd_fish(args: argparse.Namespace) -> int:
     try:
         if args.fish_command == "health":
             emit_json(client.health())
+            return 0
+
+        if args.fish_command == "shutdown":
+            emit_json(
+                client.shutdown(
+                    wait=not args.no_wait,
+                    wait_timeout=args.wait_timeout,
+                )
+            )
             return 0
 
         if args.fish_command == "voice-clone":

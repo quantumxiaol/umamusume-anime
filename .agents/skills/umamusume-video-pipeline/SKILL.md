@@ -1,6 +1,6 @@
 ---
 name: umamusume-video-pipeline
-description: Use for this repository's local Uma Musume draft-to-video pipeline: turning draft/*.md into structured script JSON, generating per-line Qwen3-TTS audio, building director-composited images and Remotion timeline content, validating stills, and rendering MP4. Trigger when asked to create or update a story video, generate TTS, run director.py, build 1080p/4K content, validate Remotion output, or recover a failed pipeline step.
+description: Use for this repository's local Uma Musume draft-to-video pipeline: turning draft/*.md into structured script JSON, generating per-line Qwen3-TTS or Fish Speech audio, building director-composited images and Remotion timeline content, applying the macOS pre-render memory gate, validating stills, and rendering MP4. Trigger when asked to create or update a story video, generate TTS, run director.py, build 1080p/4K content, validate Remotion output, or recover a failed pipeline step.
 ---
 
 # Umamusume Video Pipeline
@@ -18,7 +18,7 @@ Keep Remotion as a renderer. Do not move character semantics, speaker selection,
 ## Current Architecture
 
 - Agent writes `draft/*_script.json` from `draft/*.md`.
-- `scripts/synthesize_script.py` calls Qwen3-TTS and writes `draft/*_audio/*.wav`.
+- `scripts/synthesize_script.py` calls Qwen3-TTS or Fish Speech and writes `draft/*_audio/*.wav`.
 - `scripts/director.py` composites backgrounds and character sprites into `images/<line_id>.png`, converts audio to MP3, and writes `timeline.json`.
 - Remotion reads `my-video/public/content/<project>/timeline.json`, plays PNG/MP3/subtitles, and renders video.
 
@@ -362,7 +362,64 @@ print(round(d["elements"][-1]["endMs"] / 1000, 2))
 PY
 ```
 
-### 7. Validate and Render Remotion
+### 7. Pre-render Memory Safety (macOS)
+
+Run this gate after all TTS generation, RoleTone scoring, and audio repair are complete, but before any Remotion still or render command. Do not shut down Fish Speech while more synthesis or retry work is pending.
+
+Use the Fish Speech URL that was used for synthesis; do not assume it is always port `8002`:
+
+```bash
+FISH_TTS_URL="${FISH_TTS_URL:-http://127.0.0.1:8002}"
+LC_ALL=C memory_pressure -Q
+FREE_PERCENT="$(LC_ALL=C memory_pressure -Q | awk '/System-wide memory free percentage:/ {gsub(/%/, "", $NF); print $NF}')"
+echo "memory_pressure_free_percent=$FREE_PERCENT"
+```
+
+Treat the `memory_pressure -Q` percentage as a pressure score. Do not convert it into physical free GiB, and do not use swap-file count as the render gate.
+
+Before a final 4K or 4K60 render, check whether Fish Speech is still loaded:
+
+```bash
+uv run my-tts fish health \
+  --base-url "$FISH_TTS_URL" \
+  --timeout 5
+```
+
+Apply these rules:
+
+- If Fish Speech health reports `loaded: true` and no more TTS work is needed, shut it down before a final 4K/4K60 render even when memory pressure currently looks acceptable. A loaded MPS model can retain roughly 15-27 GiB.
+- For a lightweight 1080p still-only check, shutdown is required when `FREE_PERCENT < 50`.
+- A health connection failure means Fish Speech is already stopped; continue with the memory check.
+- `loaded: false` means no Fish model is resident, but the post-check threshold below still applies.
+
+Request a graceful shutdown and wait for Uvicorn to exit:
+
+```bash
+uv run my-tts fish shutdown \
+  --base-url "$FISH_TTS_URL" \
+  --timeout 5 \
+  --wait-timeout 60
+```
+
+The result must contain `server_stopped: true`; a normal first request also has `status: accepted`. The command waits for any active TTS request to finish before the server exits. After it succeeds, a Fish health request should fail to connect, and macOS should reclaim the process's MPS/CPU resources.
+
+Run `memory_pressure -Q` again after shutdown:
+
+- `FREE_PERCENT < 40`: do not start a 4K/4K60 Remotion render. Report the low-memory condition and wait for the user or for other processes to release memory.
+- `40 <= FREE_PERCENT < 50`: only use the serial, bounded-chunk low-memory render settings below.
+- `FREE_PERCENT >= 50`: rendering may start, but 4K/4K60 still defaults to one Remotion process.
+
+Also check temporary/output disk space before choosing non-parallel encoding:
+
+```bash
+df -h /private/tmp my-video/out
+```
+
+`--disallow-parallel-encoding` stores rendered frames before encoding. It lowers peak memory but increases temporary disk use, so use it on bounded chunks for long 4K/4K60 videos. Do not apply it to an unbounded long direct render without estimating scratch space first.
+
+If shutdown returns `403`, `404`, times out, omits `server_stopped: true`, or health still succeeds afterward, stop before rendering. A `404` usually means an old Fish Speech server is still running; ask the user to restart it with the updated server code or close it manually. Do not fall back to broad `pkill`, process-name matching, or killing an unrelated Python process.
+
+### 8. Validate and Render Remotion
 
 Composition IDs cannot contain `_`. A content directory named `EndDay_Final_4k` is rendered with composition id `EndDay-Final-4k`.
 
@@ -373,8 +430,11 @@ cd my-video
 pnpm exec remotion still EndDay-Final-4k \
   --output /tmp/EndDay_Final_4k-still.png \
   --frame=320 \
-  --scale=0.25
+  --scale=0.25 \
+  --concurrency=1
 ```
+
+Render stills one at a time. Never launch multiple 4K Remotion still/render commands through parallel tool calls or subagents.
 
 Final render:
 
@@ -383,17 +443,35 @@ cd my-video
 pnpm exec remotion render EndDay-Final-4k \
   out/EndDay_Final_4k.mp4 \
   --codec h264 \
-  --crf 20
+  --crf 20 \
+  --concurrency=1
 ```
+
+For chunked 4K/4K60 rendering, the safe default is exactly one chunk process and one Remotion renderer:
+
+```text
+MAX_JOBS=1
+RENDER_CONCURRENCY=1
+```
+
+For the low-memory or unattended path, pass `--disallow-parallel-encoding` to each bounded chunk render after the disk check. Do not reuse an older chunk script merely because it has `MAX_JOBS=1`: some existing scripts hard-code inner `--concurrency=2`, and older scripts may use up to four outer jobs. Make both levels configurable/default to `1`, and never run more than one chunk script at a time.
+
+Chunk scripts should acquire an atomic `mkdir` render lock and release it with a shell `trap`; if the lock already exists, refuse to start another 4K render. Do not silently delete a lock without confirming its owner process is gone. Use a minimal temporary `--public-dir` containing only a symlink to the target content project so Remotion does not scan all historical 4K projects.
+
+Resume only chunks that pass media validation and have a matching render signature; file existence alone is not sufficient.
 
 Current FPS is defined in `my-video/src/lib/constants.ts` as `FPS = 30`.
 
 ## Recovery Rules
 
 - TTS timeout: restart Qwen3-TTS, rerun synthesis; existing audio is skipped unless `--overwrite` is used.
+- Fish shutdown is only a phase transition after audio QC. If later audio repair is required, restart Fish Speech, regenerate only the missing/flagged lines, repeat RoleTone/QC, then run the pre-render memory gate again.
+- Fish shutdown `404`: the running server predates the admin endpoint. Do not start a memory-heavy render; have the user restart the updated Fish Speech server or close it manually.
+- Fish shutdown accepted but exit confirmation times out: do not render and do not use a broad process kill. Report that the server did not stop cleanly.
 - Character reference changed: rerun synthesis with `--speaker-id <id> --overwrite`, then rerun director.
 - Background, sprite, placement, subtitle text changed: rerun director; no TTS needed unless `spokenText` changed.
 - Remotion subtitle/style code changed: rerun still/render; no TTS or director needed unless baked images must change.
+- Interrupted 4K/4K60 render: resume serially and only reuse chunks whose media specification and render signature still match the current timeline, assets, and Remotion source.
 
 ## Future Extensions
 

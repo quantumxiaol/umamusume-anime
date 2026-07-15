@@ -45,10 +45,13 @@
 ### 3. Fish Speech 服务级
 
 - `fish health`
+- `fish shutdown`
 - `fish voice-clone`
 - `fish voice-clone-batch-file`
 
 Fish Speech 默认服务地址是 `http://127.0.0.1:8002`。如果本机同一时间只跑一个 TTS 后端，也可以让 Fish Speech 服务占用 `8001`，调用时加 `--base-url http://127.0.0.1:8001` 或项目级加 `--fish-tts-url http://127.0.0.1:8001`。
+
+`fish shutdown` 只接受明确的 loopback 地址，会发送 Fish Speech 管理确认请求头，并默认等待服务完全退出，以便 macOS 回收 MPS/CPU 内存。需要只提交关闭请求而不等待时，可以加 `--no-wait`。
 
 ## 依赖
 
@@ -109,6 +112,14 @@ uv run my-tts clone-project history-of-venus \
 ```bash
 uv run my-tts qwen health
 ```
+
+服务级：完成 TTS 后优雅关闭本机 Fish Speech，并等待确认退出：
+
+```bash
+uv run my-tts fish shutdown
+```
+
+默认最多等待 30 秒；可用 `--wait-timeout 60` 调整。成功结果包含 `server_stopped: true`。
 
 服务级：单条日语 voice clone：
 
