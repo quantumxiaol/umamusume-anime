@@ -23,8 +23,11 @@ import httpx
 
 QWEN_API_PREFIX = "/qwen3tts"
 FISH_API_PREFIX = "/fishspeech"
-ADMIN_SHUTDOWN_HEADER = "X-Fish-Speech-Admin"
 ADMIN_SHUTDOWN_VALUE = "shutdown"
+QWEN_ADMIN_SHUTDOWN_HEADER = "X-Qwen3-TTS-Admin"
+FISH_ADMIN_SHUTDOWN_HEADER = "X-Fish-Speech-Admin"
+# Backward-compatible name retained for callers that imported the Fish constant.
+ADMIN_SHUTDOWN_HEADER = FISH_ADMIN_SHUTDOWN_HEADER
 DEFAULT_CONTENT_ROOT = Path("my-video") / "public" / "content"
 DEFAULT_INDEXTTS_URL = "http://127.0.0.1:8000"
 DEFAULT_QWEN3TTS_URL = "http://127.0.0.1:8001"
@@ -234,11 +237,17 @@ class IndexTTSClient:
 
 
 class Qwen3TTSClient:
-    def __init__(self, base_url: str, timeout: float) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        timeout: float,
+        client: httpx.Client | None = None,
+    ) -> None:
         normalized = base_url.rstrip("/")
         if normalized.endswith(QWEN_API_PREFIX):
             normalized = normalized[: -len(QWEN_API_PREFIX)]
-        self._client = httpx.Client(base_url=normalized, timeout=timeout)
+        self._base_url = normalized
+        self._client = client or httpx.Client(base_url=normalized, timeout=timeout)
 
     def close(self) -> None:
         self._client.close()
@@ -258,6 +267,30 @@ class Qwen3TTSClient:
 
     def health(self) -> dict[str, Any]:
         return self._json(self._client.get(f"{QWEN_API_PREFIX}/health"))
+
+    def shutdown(
+        self,
+        *,
+        wait: bool = False,
+        wait_timeout: float = 30.0,
+    ) -> dict[str, Any]:
+        return shutdown_loopback_service(
+            client=self._client,
+            base_url=self._base_url,
+            api_prefix=QWEN_API_PREFIX,
+            admin_header=QWEN_ADMIN_SHUTDOWN_HEADER,
+            service_name="Qwen3-TTS",
+            wait=wait,
+            wait_timeout=wait_timeout,
+        )
+
+    def wait_until_stopped(self, timeout: float = 30.0) -> None:
+        wait_until_service_stopped(
+            client=self._client,
+            health_path=f"{QWEN_API_PREFIX}/health",
+            timeout=timeout,
+            service_name="Qwen3-TTS",
+        )
 
     def list_narrators(self) -> dict[str, Any]:
         return self._json(self._client.get(f"{QWEN_API_PREFIX}/tts/narrators"))
@@ -475,55 +508,22 @@ class FishSpeechClient:
         wait: bool = False,
         wait_timeout: float = 30.0,
     ) -> dict[str, Any]:
-        if not is_loopback_http_url(self._base_url):
-            raise CliError(
-                "Fish Speech shutdown is restricted to a loopback base URL "
-                "(for example http://127.0.0.1:8002)"
-            )
-
-        payload = self._json(
-            self._client.post(
-                f"{FISH_API_PREFIX}/admin/shutdown",
-                headers={
-                    ADMIN_SHUTDOWN_HEADER: ADMIN_SHUTDOWN_VALUE,
-                    "Connection": "close",
-                },
-            )
+        return shutdown_loopback_service(
+            client=self._client,
+            base_url=self._base_url,
+            api_prefix=FISH_API_PREFIX,
+            admin_header=FISH_ADMIN_SHUTDOWN_HEADER,
+            service_name="Fish Speech",
+            wait=wait,
+            wait_timeout=wait_timeout,
         )
-        if wait:
-            self.wait_until_stopped(timeout=wait_timeout)
-            payload["server_stopped"] = True
-        return payload
 
     def wait_until_stopped(self, timeout: float = 30.0) -> None:
-        if not math.isfinite(timeout) or timeout <= 0:
-            raise ValueError("timeout must be a finite number greater than 0")
-
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            remaining = deadline - time.monotonic()
-            try:
-                response = self._client.get(
-                    f"{FISH_API_PREFIX}/health",
-                    headers={"Connection": "close"},
-                    timeout=max(min(remaining, 1.0), 0.05),
-                )
-                if response.status_code != 200:
-                    return
-                try:
-                    health = response.json()
-                except ValueError:
-                    return
-                if not isinstance(health, dict) or health.get("status") != "ok":
-                    return
-            except (httpx.ConnectError, httpx.RemoteProtocolError):
-                return
-            except httpx.TimeoutException:
-                pass
-            time.sleep(min(0.2, max(remaining, 0.0)))
-
-        raise CliError(
-            f"Fish Speech server still responds after waiting {timeout:.1f} seconds for shutdown"
+        wait_until_service_stopped(
+            client=self._client,
+            health_path=f"{FISH_API_PREFIX}/health",
+            timeout=timeout,
+            service_name="Fish Speech",
         )
 
     def voice_clone(
@@ -668,6 +668,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     qwen_health = qwen_subparsers.add_parser("health", help="Call GET /qwen3tts/health.")
     add_qwen_common_args(qwen_health)
+
+    qwen_shutdown = qwen_subparsers.add_parser(
+        "shutdown",
+        help="Gracefully stop a loopback Qwen3-TTS server and wait for it to exit.",
+    )
+    add_qwen_common_args(qwen_shutdown)
+    qwen_shutdown.add_argument(
+        "--wait-timeout",
+        type=positive_float,
+        default=30.0,
+        help="Seconds to wait for the Qwen3-TTS server to stop responding.",
+    )
+    qwen_shutdown.add_argument(
+        "--no-wait",
+        action="store_true",
+        help="Return after shutdown is accepted instead of waiting for the server to exit.",
+    )
 
     qwen_narrators = qwen_subparsers.add_parser("list-narrators", help="Call GET /qwen3tts/tts/narrators.")
     add_qwen_common_args(qwen_narrators)
@@ -985,6 +1002,83 @@ def is_loopback_http_url(base_url: str) -> bool:
     return bool(mapped and mapped.is_loopback)
 
 
+def shutdown_loopback_service(
+    *,
+    client: httpx.Client,
+    base_url: str,
+    api_prefix: str,
+    admin_header: str,
+    service_name: str,
+    wait: bool = False,
+    wait_timeout: float = 30.0,
+) -> dict[str, Any]:
+    if not is_loopback_http_url(base_url):
+        raise CliError(
+            f"{service_name} shutdown is restricted to a loopback base URL "
+            "(for example http://127.0.0.1)"
+        )
+
+    response = client.post(
+        f"{api_prefix}/admin/shutdown",
+        headers={
+            admin_header: ADMIN_SHUTDOWN_VALUE,
+            "Connection": "close",
+        },
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise CliError(f"{service_name} shutdown response must be a JSON object")
+
+    if wait:
+        wait_until_service_stopped(
+            client=client,
+            health_path=f"{api_prefix}/health",
+            timeout=wait_timeout,
+            service_name=service_name,
+        )
+        payload["server_stopped"] = True
+    return payload
+
+
+def wait_until_service_stopped(
+    *,
+    client: httpx.Client,
+    health_path: str,
+    timeout: float = 30.0,
+    service_name: str,
+) -> None:
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("timeout must be a finite number greater than 0")
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        remaining = deadline - time.monotonic()
+        try:
+            response = client.get(
+                health_path,
+                headers={"Connection": "close"},
+                timeout=max(min(remaining, 1.0), 0.05),
+            )
+            if response.status_code != 200:
+                return
+            try:
+                health = response.json()
+            except ValueError:
+                return
+            if not isinstance(health, dict) or health.get("status") != "ok":
+                return
+        except (httpx.ConnectError, httpx.RemoteProtocolError):
+            return
+        except httpx.TimeoutException:
+            pass
+        time.sleep(min(0.2, max(remaining, 0.0)))
+
+    raise CliError(
+        f"{service_name} server still responds after waiting {timeout:.1f} seconds for shutdown"
+    )
+
+
 def _form_value(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
@@ -1037,6 +1131,15 @@ def cmd_qwen(args: argparse.Namespace) -> int:
     try:
         if args.qwen_command == "health":
             emit_json(client.health())
+            return 0
+
+        if args.qwen_command == "shutdown":
+            emit_json(
+                client.shutdown(
+                    wait=not args.no_wait,
+                    wait_timeout=args.wait_timeout,
+                )
+            )
             return 0
 
         if args.qwen_command == "list-narrators":

@@ -24,7 +24,6 @@ from my_tts.cli import (
 
 
 DEFAULT_CHARACTERS_ROOT = Path("characters")
-DEFAULT_TTS_ENGINE = "qwen3tts"
 
 
 class SynthesisError(RuntimeError):
@@ -49,8 +48,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--tts-engine",
         choices=("qwen3tts", "fishspeech"),
-        default=DEFAULT_TTS_ENGINE,
-        help="Voice clone backend to call.",
+        required=True,
+        help="Voice clone backend to call; must be selected explicitly.",
     )
     parser.add_argument("--qwen3tts-url", default=DEFAULT_QWEN3TTS_URL, help="Qwen3-TTS service URL.")
     parser.add_argument("--fish-tts-url", default=DEFAULT_FISH_TTS_URL, help="Fish Speech service URL.")

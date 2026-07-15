@@ -30,6 +30,7 @@
 ### 2. Qwen3TTS 服务级
 
 - `qwen health`
+- `qwen shutdown`
 - `qwen list-narrators`
 - `qwen voice-clone`
 - `qwen voice-clone-batch-file`
@@ -41,6 +42,8 @@
 - 直接传文本或文本文件
 - 可选把服务端返回的音频下载到本地
 - 透传常见生成参数，如 `top_p`、`temperature`、`max_new_tokens`
+
+`qwen shutdown` 只接受明确的 loopback 地址，会发送 Qwen3-TTS 专用管理确认请求头，并默认等待服务完全退出，以便 macOS 回收 MPS/CPU 内存。需要只提交关闭请求而不等待时，可以加 `--no-wait`。
 
 ### 3. Fish Speech 服务级
 
@@ -113,13 +116,19 @@ uv run my-tts clone-project history-of-venus \
 uv run my-tts qwen health
 ```
 
+服务级：完成 TTS 后优雅关闭本机 Qwen3-TTS，并等待确认退出：
+
+```bash
+uv run my-tts qwen shutdown
+```
+
 服务级：完成 TTS 后优雅关闭本机 Fish Speech，并等待确认退出：
 
 ```bash
 uv run my-tts fish shutdown
 ```
 
-默认最多等待 30 秒；可用 `--wait-timeout 60` 调整。成功结果包含 `server_stopped: true`。
+两种 shutdown 默认最多等待 30 秒；可用 `--wait-timeout 60` 调整。成功结果包含 `server_stopped: true`。
 
 服务级：单条日语 voice clone：
 

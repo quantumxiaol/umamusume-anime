@@ -135,32 +135,45 @@ PY
 
 ### 3. Check TTS Service
 
-Use Qwen3-TTS by default. Qwen3-TTS normally runs on `http://127.0.0.1:8001`.
+Do not hard-code or infer the TTS backend from its port. Select it explicitly for each pipeline run and keep the same `TTS_ENGINE`/`TTS_URL` through synthesis and the pre-render shutdown gate. The user's current preferred backend is Fish Speech, so use this for the normal path unless the user explicitly requests Qwen3-TTS or only Qwen3-TTS is available:
 
 ```bash
-uv run python - <<'PYCODE'
-from my_tts.cli import Qwen3TTSClient
-c = Qwen3TTSClient("http://127.0.0.1:8001", timeout=10)
-try:
-    print(c.health())
-finally:
-    c.close()
-PYCODE
+export TTS_ENGINE=fishspeech
+export TTS_URL=http://127.0.0.1:8002
+uv run my-tts fish health --base-url "$TTS_URL" --timeout 10
 ```
 
-Fish Speech is also supported. Fish Speech normally runs on `http://127.0.0.1:8002`. If only one TTS backend is running, Fish Speech may also use `8001`; then pass `--fish-tts-url http://127.0.0.1:8001`.
+Fish Speech normally runs on `http://127.0.0.1:8002`, but it may use `8001`; keep `TTS_ENGINE=fishspeech` and set `TTS_URL` to the actual loopback URL.
+
+For an explicitly selected Qwen3-TTS run:
 
 ```bash
-uv run my-tts fish health --base-url http://127.0.0.1:8002
+export TTS_ENGINE=qwen3tts
+export TTS_URL=http://127.0.0.1:8001
+uv run my-tts qwen health --base-url "$TTS_URL" --timeout 10
 ```
 
 If health times out, tell the user to restart the active TTS server before sending generation requests.
 
 ### 4. Generate TTS
 
-By default, `scripts/synthesize_script.py` uses Qwen3-TTS `voice_clone_batch_file` grouped by `speakerId`.
+Always pass `--tts-engine` explicitly and pass the matching URL from `TTS_URL`; `scripts/synthesize_script.py` requires an explicit backend so an omitted flag cannot silently select the wrong service. For the current normal workflow, select Fish Speech with `--tts-engine fishspeech`. It supports single-line `voice_clone` and multi-line `voice_clone_batch_file`. For Fish Speech S2 Pro, keep batches shorter because memory use is higher; use `--batch-size 2` to `--batch-size 4` for safer runs.
 
-Fish Speech is selected with `--tts-engine fishspeech`. It supports single-line `voice_clone` and multi-line `voice_clone_batch_file`. For Fish Speech S2 Pro, keep batches shorter because VRAM use is higher; use `--batch-size 2` to `--batch-size 4` for safer runs.
+Fish Speech command (current preferred path):
+
+```bash
+uv run python scripts/synthesize_script.py \
+  --script draft/endday_final_script.json \
+  --tts-engine fishspeech \
+  --fish-tts-url "$TTS_URL" \
+  --timeout 900 \
+  --batch-size 4 \
+  --temperature 0.7 \
+  --top-p 0.8 \
+  --max-new-tokens 512
+```
+
+The Qwen3-TTS path remains available when it is explicitly selected. Qwen3-TTS uses `voice_clone_batch_file` grouped by `speakerId`.
 
 Qwen3-TTS command:
 
@@ -168,7 +181,7 @@ Qwen3-TTS command:
 uv run python scripts/synthesize_script.py \
   --script draft/endday_final_script.json \
   --tts-engine qwen3tts \
-  --qwen3tts-url http://127.0.0.1:8001 \
+  --qwen3tts-url "$TTS_URL" \
   --timeout 900 \
   --batch-size 6 \
   --non-streaming-mode true \
@@ -180,20 +193,6 @@ uv run python scripts/synthesize_script.py \
   --subtalker-temperature 0.6 \
   --subtalker-top-p 0.85 \
   --subtalker-top-k 20
-```
-
-Fish Speech command:
-
-```bash
-uv run python scripts/synthesize_script.py \
-  --script draft/endday_final_script.json \
-  --tts-engine fishspeech \
-  --fish-tts-url http://127.0.0.1:8002 \
-  --timeout 900 \
-  --batch-size 4 \
-  --temperature 0.7 \
-  --top-p 0.8 \
-  --max-new-tokens 512
 ```
 
 Fish Speech target text is normalized before the request:
@@ -210,7 +209,7 @@ Good first-pass Fish Speech S2-Pro settings for livelier anime dialogue:
 uv run python scripts/synthesize_script.py \
   --script draft/endday_final_script.json \
   --tts-engine fishspeech \
-  --fish-tts-url http://127.0.0.1:8002 \
+  --fish-tts-url "$TTS_URL" \
   --timeout 900 \
   --batch-size 4 \
   --fish-style energetic \
@@ -220,10 +219,10 @@ uv run python scripts/synthesize_script.py \
   --max-new-tokens 512
 ```
 
-If Fish Speech is running on `8001`, use:
+If Fish Speech is running on `8001`, update the recorded URL before health checks and synthesis:
 
 ```bash
---fish-tts-url http://127.0.0.1:8001
+export TTS_URL=http://127.0.0.1:8001
 ```
 
 Regenerate one character:
@@ -232,7 +231,7 @@ Regenerate one character:
 uv run python scripts/synthesize_script.py \
   --script draft/endday_final_script.json \
   --tts-engine fishspeech \
-  --fish-tts-url http://127.0.0.1:8002 \
+  --fish-tts-url "$TTS_URL" \
   --speaker-id kitasan_black \
   --overwrite \
   --timeout 900 \
@@ -248,7 +247,7 @@ Regenerate one line:
 uv run python scripts/synthesize_script.py \
   --script draft/endday_final_script.json \
   --tts-engine fishspeech \
-  --fish-tts-url http://127.0.0.1:8002 \
+  --fish-tts-url "$TTS_URL" \
   --line-id kb001 \
   --overwrite \
   --timeout 900 \
@@ -364,44 +363,67 @@ PY
 
 ### 7. Pre-render Memory Safety (macOS)
 
-Run this gate after all TTS generation, RoleTone scoring, and audio repair are complete, but before any Remotion still or render command. Do not shut down Fish Speech while more synthesis or retry work is pending.
+Run this gate after all TTS generation, RoleTone scoring, and audio repair are complete, but before any Remotion still or render command. Do not shut down the active TTS backend while more synthesis or retry work is pending.
 
-Use the Fish Speech URL that was used for synthesis; do not assume it is always port `8002`:
+Record the backend used by this pipeline run and its loopback URL. Only inspect or stop a service that this run actually used and that is dedicated to this local pipeline; do not probe or stop an unrelated TTS service. If both backends were deliberately used, repeat the backend-specific checks for both. Fish Speech may also run on port `8001`, so a port number alone does not identify the backend.
 
 ```bash
-FISH_TTS_URL="${FISH_TTS_URL:-http://127.0.0.1:8002}"
+: "${TTS_ENGINE:?set TTS_ENGINE to qwen3tts or fishspeech to match synthesis}"
+: "${TTS_URL:?set TTS_URL to the loopback URL used for synthesis}"
 LC_ALL=C memory_pressure -Q
 FREE_PERCENT="$(LC_ALL=C memory_pressure -Q | awk '/System-wide memory free percentage:/ {gsub(/%/, "", $NF); print $NF}')"
 echo "memory_pressure_free_percent=$FREE_PERCENT"
+case "$FREE_PERCENT" in
+  ''|*[!0-9]*) echo "invalid memory_pressure free percentage" >&2; exit 1 ;;
+esac
+if [ "$FREE_PERCENT" -lt 0 ] || [ "$FREE_PERCENT" -gt 100 ]; then
+  echo "memory_pressure free percentage out of range: $FREE_PERCENT" >&2
+  exit 1
+fi
 ```
 
-Treat the `memory_pressure -Q` percentage as a pressure score. Do not convert it into physical free GiB, and do not use swap-file count as the render gate.
+Treat the `memory_pressure -Q` value as a free-percentage pressure indicator: higher is safer. Do not convert it into physical free GiB, and do not use swap-file count as the render gate. A missing, non-numeric, or out-of-range value blocks rendering.
 
-Before a final 4K or 4K60 render, check whether Fish Speech is still loaded:
+Query only the selected backend. Use the matching branch, not both commands unconditionally:
 
 ```bash
-uv run my-tts fish health \
-  --base-url "$FISH_TTS_URL" \
-  --timeout 5
+case "$TTS_ENGINE" in
+  qwen3tts) uv run my-tts qwen health --base-url "$TTS_URL" --timeout 5 ;;
+  fishspeech) uv run my-tts fish health --base-url "$TTS_URL" --timeout 5 ;;
+  *) echo "unsupported TTS_ENGINE: $TTS_ENGINE" >&2; exit 1 ;;
+esac
 ```
 
 Apply these rules:
 
-- If Fish Speech health reports `loaded: true` and no more TTS work is needed, shut it down before a final 4K/4K60 render even when memory pressure currently looks acceptable. A loaded MPS model can retain roughly 15-27 GiB.
-- For a lightweight 1080p still-only check, shutdown is required when `FREE_PERCENT < 50`.
-- A health connection failure means Fish Speech is already stopped; continue with the memory check.
-- `loaded: false` means no Fish model is resident, but the post-check threshold below still applies.
+- Qwen3-TTS is resident when `loaded_models` is non-empty; Fish Speech is resident when `loaded: true`.
+- Before any final render (1080p, 4K, or 4K60) or a full-resolution 4K still, gracefully stop the selected resident TTS service once no more TTS work is needed, even when memory pressure currently looks acceptable. Loaded local TTS models can retain substantial MPS/CPU memory.
+- A lightweight scaled 1080p still may keep the selected service running when `FREE_PERCENT >= 50`; otherwise stop it first if it is resident.
+- Only an explicit connection-refused/`ConnectError` result means the backend is already stopped. A timeout, HTTP error, schema mismatch, wrong service, or invalid JSON leaves the state unknown: verify `TTS_ENGINE` and `TTS_URL`, then block rendering until resolved.
+- Empty `loaded_models` or `loaded: false` means that backend has no model resident, but the post-check threshold below still applies.
 
-Request a graceful shutdown and wait for Uvicorn to exit:
+Request a graceful shutdown for the selected backend and wait for Uvicorn to exit:
 
 ```bash
-uv run my-tts fish shutdown \
-  --base-url "$FISH_TTS_URL" \
-  --timeout 5 \
-  --wait-timeout 60
+case "$TTS_ENGINE" in
+  qwen3tts) uv run my-tts qwen shutdown --base-url "$TTS_URL" --timeout 5 --wait-timeout 60 ;;
+  fishspeech) uv run my-tts fish shutdown --base-url "$TTS_URL" --timeout 5 --wait-timeout 60 ;;
+esac
 ```
 
-The result must contain `server_stopped: true`; a normal first request also has `status: accepted`. The command waits for any active TTS request to finish before the server exits. After it succeeds, a Fish health request should fail to connect, and macOS should reclaim the process's MPS/CPU resources.
+The result must contain `server_stopped: true`; a normal first request also has `status: accepted`, while an already-pending request may report `status: already_pending`. The server lets active TTS requests finish before exiting and rejects new requests after shutdown begins.
+
+For the strict render gate, also confirm that the selected service's TCP listener is gone; a non-200 health response alone is not sufficient proof that Uvicorn exited. Derive the port from `TTS_URL` and use this guard:
+
+```bash
+TTS_PORT="$(uv run python -c 'import sys; from urllib.parse import urlsplit; u=urlsplit(sys.argv[1]); print(u.port or (443 if u.scheme == "https" else 80))' "$TTS_URL")"
+if lsof -nP -iTCP:"$TTS_PORT" -sTCP:LISTEN; then
+  echo "TTS listener is still active on port $TTS_PORT" >&2
+  exit 1
+fi
+```
+
+If `lsof` still reports a listener, stop before rendering. Shutdown accepts only an explicit loopback URL; if synthesis used `0.0.0.0` as the server bind address, use `127.0.0.1` or `localhost` with the same port for the client command.
 
 Run `memory_pressure -Q` again after shutdown:
 
@@ -417,7 +439,7 @@ df -h /private/tmp my-video/out
 
 `--disallow-parallel-encoding` stores rendered frames before encoding. It lowers peak memory but increases temporary disk use, so use it on bounded chunks for long 4K/4K60 videos. Do not apply it to an unbounded long direct render without estimating scratch space first.
 
-If shutdown returns `403`, `404`, times out, omits `server_stopped: true`, or health still succeeds afterward, stop before rendering. A `404` usually means an old Fish Speech server is still running; ask the user to restart it with the updated server code or close it manually. Do not fall back to broad `pkill`, process-name matching, or killing an unrelated Python process.
+If shutdown returns `403`, `404`, times out, omits `server_stopped: true`, or the listener remains, stop before rendering. On `404`, first verify that `TTS_ENGINE` and `TTS_URL` point to the correct service; only then conclude that the running server predates the admin endpoint. Ask the user to restart the updated server or close it manually. Do not fall back to broad `pkill`, process-name matching, or killing an unrelated Python process.
 
 ### 8. Validate and Render Remotion
 
@@ -464,10 +486,10 @@ Current FPS is defined in `my-video/src/lib/constants.ts` as `FPS = 30`.
 
 ## Recovery Rules
 
-- TTS timeout: restart Qwen3-TTS, rerun synthesis; existing audio is skipped unless `--overwrite` is used.
-- Fish shutdown is only a phase transition after audio QC. If later audio repair is required, restart Fish Speech, regenerate only the missing/flagged lines, repeat RoleTone/QC, then run the pre-render memory gate again.
-- Fish shutdown `404`: the running server predates the admin endpoint. Do not start a memory-heavy render; have the user restart the updated Fish Speech server or close it manually.
-- Fish shutdown accepted but exit confirmation times out: do not render and do not use a broad process kill. Report that the server did not stop cleanly.
+- TTS timeout: restart the selected backend, rerun synthesis; existing audio is skipped unless `--overwrite` is used.
+- TTS shutdown is only a phase transition after audio QC. If later audio repair is required, restart the selected backend, regenerate only the missing/flagged lines, repeat RoleTone/QC, then run the pre-render memory gate again.
+- Qwen3-TTS/Fish Speech shutdown `404`: the running server predates its admin endpoint. Do not start a memory-heavy render; have the user restart the updated server or close it manually.
+- Shutdown accepted but exit confirmation times out: do not render and do not use a broad process kill. Report which backend did not stop cleanly.
 - Character reference changed: rerun synthesis with `--speaker-id <id> --overwrite`, then rerun director.
 - Background, sprite, placement, subtitle text changed: rerun director; no TTS needed unless `spokenText` changed.
 - Remotion subtitle/style code changed: rerun still/render; no TTS or director needed unless baked images must change.
