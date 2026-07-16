@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
 import sys
 import unicodedata
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +25,62 @@ INACTIVE_SPRITE_SCALE_MULTIPLIER = 0.97
 INACTIVE_SPRITE_BRIGHTNESS = 0.68
 MAX_SUBTITLE_LINES = 2
 MAX_SUBTITLE_DISPLAY_WIDTH = 108
+DIRECTOR_MANIFEST_FILENAME = ".director-manifest.json"
+DIRECTOR_MANIFEST_VERSION = 1
+VISUAL_PIPELINE_VERSION = 1
+AUDIO_PIPELINE_VERSION = 1
+AUDIO_MP3_QUALITY = 2
+
+
+@dataclass(frozen=True)
+class ResolvedSprite:
+    source: Path
+    source_sha256: str
+    base_scale: float
+    scale_multiplier: float
+    brightness: float
+    x_mode: str
+    x_value: int | str
+    y_mode: str
+    y_value: int
+
+
+@dataclass(frozen=True)
+class VisualPlan:
+    background: Path
+    background_sha256: str
+    sprites: tuple[ResolvedSprite, ...]
+    canvas_size: tuple[int, int]
+
+    def fingerprint_inputs(self) -> dict[str, Any]:
+        return {
+            "pipelineVersion": VISUAL_PIPELINE_VERSION,
+            "canvas": {"width": self.canvas_size[0], "height": self.canvas_size[1]},
+            "background": {"sha256": self.background_sha256},
+            "sprites": [
+                {
+                    "sha256": sprite.source_sha256,
+                    "baseScale": sprite.base_scale,
+                    "scaleMultiplier": sprite.scale_multiplier,
+                    "brightness": sprite.brightness,
+                    "x": {"mode": sprite.x_mode, "value": sprite.x_value},
+                    "y": {"mode": sprite.y_mode, "value": sprite.y_value},
+                }
+                for sprite in self.sprites
+            ],
+            "compositor": {
+                "backgroundFit": "cover-lanczos",
+                "spriteResize": "height-lanczos",
+                "layerOrder": "script-order",
+                "output": "rgb-png",
+            },
+        }
+
+    def source_details(self, *, repo_root: Path) -> dict[str, Any]:
+        return {
+            "background": display_path(self.background, repo_root=repo_root),
+            "sprites": [display_path(sprite.source, repo_root=repo_root) for sprite in self.sprites],
+        }
 
 
 class DirectorError(RuntimeError):
@@ -89,6 +147,7 @@ def build_project(args: argparse.Namespace) -> None:
     project = args.project or str(script.get("projectId") or script_path.stem)
     if not project:
         raise DirectorError("project slug is empty")
+    validate_output_id(project)
 
     catalog = read_json(Path(args.background_catalog))
     lines = flatten_lines(script)
@@ -104,6 +163,14 @@ def build_project(args: argparse.Namespace) -> None:
     image_dir.mkdir(parents=True, exist_ok=True)
     audio_dir.mkdir(parents=True, exist_ok=True)
 
+    previous_manifest = load_director_manifest(project_root)
+    previous_owned = collect_previous_owned_files(
+        project_root=project_root,
+        previous_manifest=previous_manifest,
+    )
+    previous_lines = manifest_mapping(previous_manifest, "lines")
+    previous_frames = manifest_mapping(previous_manifest, "frames")
+
     timeline: dict[str, Any] = {
         "shortTitle": str(script.get("title") or project),
         "width": canvas_size[0],
@@ -118,29 +185,107 @@ def build_project(args: argparse.Namespace) -> None:
     }
     characters_root = Path(args.characters_root)
     speaker_label_cache: dict[str, str] = {}
+    file_hash_cache: dict[tuple[str, int, int], str] = {}
+    handled_visuals: set[str] = set()
+    manifest_lines: dict[str, Any] = {}
+    manifest_frames: dict[str, Any] = {}
+    owned_images: set[str] = set()
+    owned_audio: set[str] = set()
+
+    line_ids: set[str] = set()
+    for index, line in enumerate(lines, start=1):
+        line_id = str(line.get("id") or f"l{index:03d}")
+        validate_output_id(line_id)
+        if line_id in line_ids:
+            raise DirectorError(f"duplicate line id: {line_id}")
+        line_ids.add(line_id)
 
     current_ms = 0
     for index, line in enumerate(lines, start=1):
         line_id = str(line.get("id") or f"l{index:03d}")
-        audio_path = prepare_audio(
+        previous_line = previous_lines.get(line_id) if isinstance(previous_lines.get(line_id), dict) else {}
+
+        audio_path = audio_dir / f"{line_id}.mp3"
+        audio_plan = build_audio_plan(
             line=line,
-            destination=audio_dir / f"{line_id}.mp3",
             repo_root=repo_root,
-            overwrite=args.overwrite,
+            file_hash_cache=file_hash_cache,
         )
-        duration_ms = audio_duration_ms(audio_path) if audio_path.exists() else estimated_duration_ms(line)
-        image_path = image_dir / f"{line_id}.png"
-        if image_path.exists() and not args.overwrite:
-            raise DirectorError(f"image already exists, pass --overwrite: {image_path}")
-        compose_frame(
+        audio_record: dict[str, Any] | None = None
+        if audio_plan is not None:
+            owned_audio.add(audio_path.name)
+            previous_audio = previous_line.get("audio") if isinstance(previous_line, dict) else None
+            audio_is_current = (
+                not args.overwrite
+                and cached_audio_is_current(
+                    previous_audio,
+                    expected_fingerprint=audio_plan["fingerprint"],
+                    destination=audio_path,
+                    file_hash_cache=file_hash_cache,
+                )
+            )
+            if not audio_is_current:
+                prepare_audio(
+                    line=line,
+                    destination=audio_path,
+                    repo_root=repo_root,
+                    overwrite=True,
+                    source=audio_plan["source"],
+                )
+
+            if audio_is_current and isinstance(previous_audio.get("durationMs"), int):
+                duration_ms = max(1, int(previous_audio["durationMs"]))
+            else:
+                duration_ms = audio_duration_ms(audio_path)
+            audio_record = {
+                "fingerprint": audio_plan["fingerprint"],
+                "inputs": audio_plan["inputs"],
+                "source": display_path(audio_plan["source"], repo_root=repo_root),
+                "output": audio_path.name,
+                "outputSize": audio_path.stat().st_size,
+                "outputSha256": file_sha256(audio_path, cache=file_hash_cache),
+                "durationMs": duration_ms,
+            }
+        else:
+            duration_ms = estimated_duration_ms(line)
+
+        visual_plan = resolve_visual_plan(
             line=line,
-            destination=image_path,
             catalog=catalog,
             characters_root=characters_root,
             repo_root=repo_root,
             canvas_size=canvas_size,
             auto_focus=not args.no_auto_focus,
+            file_hash_cache=file_hash_cache,
         )
+        visual_inputs = visual_plan.fingerprint_inputs()
+        visual_fingerprint = stable_fingerprint(visual_inputs)
+        image_url = f"frame-{visual_fingerprint}"
+        image_path = image_dir / f"{image_url}.png"
+        owned_images.add(image_path.name)
+
+        if visual_fingerprint not in handled_visuals:
+            previous_frame = previous_frames.get(image_url)
+            frame_is_current = (
+                not args.overwrite
+                and cached_frame_is_current(
+                    previous_frame,
+                    expected_fingerprint=visual_fingerprint,
+                    destination=image_path,
+                )
+            )
+            if not frame_is_current:
+                compose_resolved_frame(plan=visual_plan, destination=image_path)
+            handled_visuals.add(visual_fingerprint)
+
+        manifest_frames[image_url] = {
+            "fingerprint": visual_fingerprint,
+            "inputs": visual_inputs,
+            "sources": visual_plan.source_details(repo_root=repo_root),
+            "output": image_path.name,
+            "outputSize": image_path.stat().st_size,
+            "outputMtimeNs": image_path.stat().st_mtime_ns,
+        }
 
         start_ms = current_ms
         end_ms = current_ms + duration_ms
@@ -149,12 +294,12 @@ def build_project(args: argparse.Namespace) -> None:
             {
                 "startMs": start_ms,
                 "endMs": next_start_ms,
-                "imageUrl": line_id,
+                "imageUrl": image_url,
                 "enterTransition": "none",
                 "exitTransition": "none",
             }
         )
-        if audio_path.exists():
+        if audio_record is not None:
             timeline["audio"].append({"startMs": start_ms, "endMs": end_ms, "audioUrl": line_id})
 
         subtitle_element = build_subtitle_element(
@@ -176,10 +321,51 @@ def build_project(args: argparse.Namespace) -> None:
                 "durationMs": duration_ms,
             }
         )
+        manifest_line: dict[str, Any] = {
+            "visualFingerprint": visual_fingerprint,
+            "imageUrl": image_url,
+            "durationMs": duration_ms,
+        }
+        if audio_record is not None:
+            manifest_line["audio"] = audio_record
+        manifest_lines[line_id] = manifest_line
         current_ms = next_start_ms
 
     write_json(project_root / "timeline.json", timeline)
     write_json(project_root / "descriptor.json", descriptor)
+    manifest = {
+        "version": DIRECTOR_MANIFEST_VERSION,
+        "project": project,
+        "settings": {
+            "width": canvas_size[0],
+            "height": canvas_size[1],
+            "autoFocus": not args.no_auto_focus,
+            "lineGapMs": args.line_gap_ms,
+        },
+        "lines": manifest_lines,
+        "frames": manifest_frames,
+        "ownedFiles": {
+            "images": sorted(owned_images),
+            "audio": sorted(owned_audio),
+        },
+    }
+    # Publish a transitional ownership union before pruning. If the process is
+    # interrupted during cleanup, the next run still knows which stale outputs
+    # Director owned and can finish removing them safely.
+    prune_manifest = dict(manifest)
+    prune_manifest["ownedFiles"] = {
+        "images": sorted(previous_owned.get("images", set()) | owned_images),
+        "audio": sorted(previous_owned.get("audio", set()) | owned_audio),
+    }
+    manifest_path = project_root / DIRECTOR_MANIFEST_FILENAME
+    write_json(manifest_path, prune_manifest)
+    prune_unreferenced_generated_files(
+        image_dir=image_dir,
+        audio_dir=audio_dir,
+        previous_owned=previous_owned,
+        current_owned={"images": owned_images, "audio": owned_audio},
+    )
+    write_json(manifest_path, manifest)
     print(f"project:    {project}")
     print(f"images:     {image_dir}")
     print(f"audio:      {audio_dir}")
@@ -225,21 +411,100 @@ def compose_frame(
     canvas_size: tuple[int, int],
     auto_focus: bool,
 ) -> None:
-    background_path = resolve_background_path(line.get("background"), catalog, repo_root)
-    canvas = crop_cover(Image.open(background_path).convert("RGBA"), canvas_size)
+    plan = resolve_visual_plan(
+        line=line,
+        catalog=catalog,
+        characters_root=characters_root,
+        repo_root=repo_root,
+        canvas_size=canvas_size,
+        auto_focus=auto_focus,
+        file_hash_cache={},
+    )
+    compose_resolved_frame(plan=plan, destination=destination)
 
+
+def resolve_visual_plan(
+    *,
+    line: dict[str, Any],
+    catalog: dict[str, Any],
+    characters_root: Path,
+    repo_root: Path,
+    canvas_size: tuple[int, int],
+    auto_focus: bool,
+    file_hash_cache: dict[tuple[str, int, int], str],
+) -> VisualPlan:
+    background_path = resolve_background_path(line.get("background"), catalog, repo_root)
+    sprites: list[ResolvedSprite] = []
     for character in character_specs_for_line(line):
         sprite_path = resolve_sprite_path(line=character, characters_root=characters_root, repo_root=repo_root)
-        sprite = Image.open(sprite_path).convert("RGBA")
         style = character_focus_style(line=line, character=character, auto_focus=auto_focus)
-        sprite = apply_sprite_style(sprite=sprite, style=style)
-        scale = float(character.get("spriteScale", DEFAULT_SPRITE_SCALE)) * style["scale_multiplier"]
-        sprite = resize_sprite(sprite, target_height=int(canvas_size[1] * scale))
-        x, y = character_position(character=character, sprite=sprite, canvas_size=canvas_size)
+        if "spriteX" in character:
+            x_mode = "absolute"
+            x_value: int | str = int(character["spriteX"])
+        else:
+            x_mode = "slot"
+            x_value = str(character.get("slot") or "center")
+        if "spriteY" in character:
+            y_mode = "absolute"
+            y_value = int(character["spriteY"])
+        else:
+            y_mode = "bottom-offset"
+            y_value = int(character.get("spriteBottomOffset", 24))
+        sprites.append(
+            ResolvedSprite(
+                source=sprite_path,
+                source_sha256=file_sha256(sprite_path, cache=file_hash_cache),
+                base_scale=float(character.get("spriteScale", DEFAULT_SPRITE_SCALE)),
+                scale_multiplier=float(style["scale_multiplier"]),
+                brightness=float(style["brightness"]),
+                x_mode=x_mode,
+                x_value=x_value,
+                y_mode=y_mode,
+                y_value=y_value,
+            )
+        )
+    return VisualPlan(
+        background=background_path,
+        background_sha256=file_sha256(background_path, cache=file_hash_cache),
+        sprites=tuple(sprites),
+        canvas_size=canvas_size,
+    )
+
+
+def compose_resolved_frame(*, plan: VisualPlan, destination: Path) -> None:
+    with Image.open(plan.background) as background_image:
+        canvas = crop_cover(background_image.convert("RGBA"), plan.canvas_size)
+
+    for resolved in plan.sprites:
+        with Image.open(resolved.source) as sprite_image:
+            sprite = sprite_image.convert("RGBA")
+        sprite = apply_sprite_style(
+            sprite=sprite,
+            style={"brightness": resolved.brightness},
+        )
+        scale = resolved.base_scale * resolved.scale_multiplier
+        sprite = resize_sprite(sprite, target_height=int(plan.canvas_size[1] * scale))
+        if resolved.x_mode == "absolute":
+            x = int(resolved.x_value)
+        else:
+            x = slot_x(
+                slot=str(resolved.x_value),
+                sprite_width=sprite.width,
+                canvas_width=plan.canvas_size[0],
+            )
+        if resolved.y_mode == "absolute":
+            y = resolved.y_value
+        else:
+            y = plan.canvas_size[1] - sprite.height + resolved.y_value
         canvas.alpha_composite(sprite, (x, y))
 
     destination.parent.mkdir(parents=True, exist_ok=True)
-    canvas.convert("RGB").save(destination, quality=95)
+    temporary = destination.with_name(f".{destination.stem}.tmp{destination.suffix}")
+    try:
+        canvas.convert("RGB").save(temporary, quality=95)
+        temporary.replace(destination)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def resolve_background_path(value: Any, catalog: dict[str, Any], repo_root: Path) -> Path:
@@ -379,21 +644,80 @@ def prepare_audio(
     destination: Path,
     repo_root: Path,
     overwrite: bool,
+    source: Path | None = None,
 ) -> Path:
-    if destination.exists() and not overwrite:
-        return destination
-
     audio_value = line.get("audio")
     if not audio_value:
         return destination
+    if destination.exists() and not overwrite:
+        return destination
+
+    if source is None:
+        source = resolve_existing_path(str(audio_value), repo_root=repo_root, label="audio")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.stem}.tmp{destination.suffix}")
+    try:
+        if source.suffix.lower() == ".mp3":
+            if source.resolve() != destination.resolve():
+                shutil.copy2(source, temporary)
+                temporary.replace(destination)
+        else:
+            run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    str(source),
+                    "-codec:a",
+                    "libmp3lame",
+                    "-q:a",
+                    str(AUDIO_MP3_QUALITY),
+                    str(temporary),
+                ]
+            )
+            temporary.replace(destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return destination
+
+
+def build_audio_plan(
+    *,
+    line: dict[str, Any],
+    repo_root: Path,
+    file_hash_cache: dict[tuple[str, int, int], str],
+) -> dict[str, Any] | None:
+    audio_value = line.get("audio")
+    if not audio_value:
+        return None
 
     source = resolve_existing_path(str(audio_value), repo_root=repo_root, label="audio")
-    destination.parent.mkdir(parents=True, exist_ok=True)
     if source.suffix.lower() == ".mp3":
-        shutil.copy2(source, destination)
+        transcode: dict[str, Any] = {
+            "mode": "copy",
+            "sourceFormat": ".mp3",
+            "outputFormat": ".mp3",
+        }
     else:
-        run(["ffmpeg", "-y", "-i", str(source), "-codec:a", "libmp3lame", "-q:a", "2", str(destination)])
-    return destination
+        transcode = {
+            "mode": "ffmpeg",
+            "codec": "libmp3lame",
+            "quality": AUDIO_MP3_QUALITY,
+            "outputFormat": ".mp3",
+        }
+    inputs = {
+        "pipelineVersion": AUDIO_PIPELINE_VERSION,
+        "source": {
+            "sha256": file_sha256(source, cache=file_hash_cache),
+            "suffix": source.suffix.lower(),
+        },
+        "transcode": transcode,
+    }
+    return {
+        "source": source,
+        "inputs": inputs,
+        "fingerprint": stable_fingerprint(inputs),
+    }
 
 
 def audio_duration_ms(path: Path) -> int:
@@ -584,6 +908,198 @@ def resolve_existing_path(path_value: str, *, repo_root: Path, label: str) -> Pa
     return path
 
 
+def validate_output_id(value: str) -> None:
+    if not value or value in {".", ".."} or Path(value).name != value or "/" in value or "\\" in value:
+        raise DirectorError(f"line id is not a safe output basename: {value!r}")
+
+
+def stable_fingerprint(payload: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def file_sha256(path: Path, *, cache: dict[tuple[str, int, int], str]) -> str:
+    resolved = path.resolve()
+    stat = resolved.stat()
+    key = (str(resolved), stat.st_size, stat.st_mtime_ns)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    digest = hashlib.sha256()
+    with resolved.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    value = digest.hexdigest()
+    cache[key] = value
+    return value
+
+
+def display_path(path: Path, *, repo_root: Path) -> str:
+    resolved = path.resolve()
+    try:
+        return resolved.relative_to(repo_root.resolve()).as_posix()
+    except ValueError:
+        return str(resolved)
+
+
+def load_director_manifest(project_root: Path) -> dict[str, Any] | None:
+    path = project_root / DIRECTOR_MANIFEST_FILENAME
+    if not path.exists():
+        return None
+    try:
+        manifest = read_json(path)
+    except DirectorError as exc:
+        print(f"warning: ignoring unreadable director manifest {path}: {exc}", file=sys.stderr)
+        return None
+    if manifest.get("version") != DIRECTOR_MANIFEST_VERSION:
+        print(
+            f"warning: ignoring unsupported director manifest version in {path}: {manifest.get('version')!r}",
+            file=sys.stderr,
+        )
+        return None
+    return manifest
+
+
+def manifest_mapping(manifest: dict[str, Any] | None, key: str) -> dict[str, Any]:
+    if manifest is None:
+        return {}
+    value = manifest.get(key)
+    return value if isinstance(value, dict) else {}
+
+
+def cached_frame_is_current(
+    record: Any,
+    *,
+    expected_fingerprint: str,
+    destination: Path,
+) -> bool:
+    if not isinstance(record, dict) or not destination.is_file():
+        return False
+    expected_size = record.get("outputSize")
+    expected_mtime_ns = record.get("outputMtimeNs")
+    return (
+        record.get("fingerprint") == expected_fingerprint
+        and record.get("output") == destination.name
+        and isinstance(expected_size, int)
+        and destination.stat().st_size == expected_size
+        and isinstance(expected_mtime_ns, int)
+        and destination.stat().st_mtime_ns == expected_mtime_ns
+    )
+
+
+def cached_audio_is_current(
+    record: Any,
+    *,
+    expected_fingerprint: str,
+    destination: Path,
+    file_hash_cache: dict[tuple[str, int, int], str],
+) -> bool:
+    if not isinstance(record, dict) or not destination.is_file():
+        return False
+    expected_size = record.get("outputSize")
+    expected_sha256 = record.get("outputSha256")
+    if not (
+        record.get("fingerprint") == expected_fingerprint
+        and record.get("output") == destination.name
+        and isinstance(expected_size, int)
+        and destination.stat().st_size == expected_size
+        and isinstance(expected_sha256, str)
+    ):
+        return False
+    return file_sha256(destination, cache=file_hash_cache) == expected_sha256
+
+
+def is_safe_owned_filename(value: str, *, suffix: str) -> bool:
+    return bool(value) and value not in {".", ".."} and Path(value).name == value and value.endswith(suffix)
+
+
+def collect_previous_owned_files(
+    *,
+    project_root: Path,
+    previous_manifest: dict[str, Any] | None,
+) -> dict[str, set[str]]:
+    """Return only files that a previous Director build explicitly owned.
+
+    A versioned manifest is authoritative once present. For projects being
+    migrated from the legacy per-line layout, timeline references are the only
+    ownership evidence. An unreadable/unsupported manifest deliberately
+    disables the timeline fallback so a damaged manifest cannot broaden the
+    cleanup boundary.
+    """
+    previous_owned: dict[str, set[str]] = {"images": set(), "audio": set()}
+    if previous_manifest is not None:
+        owned_files = previous_manifest.get("ownedFiles")
+        if not isinstance(owned_files, dict):
+            return previous_owned
+        for kind, suffix in (("images", ".png"), ("audio", ".mp3")):
+            values = owned_files.get(kind)
+            if not isinstance(values, list):
+                continue
+            previous_owned[kind].update(
+                value
+                for value in values
+                if isinstance(value, str) and is_safe_owned_filename(value, suffix=suffix)
+            )
+        return previous_owned
+
+    manifest_path = project_root / DIRECTOR_MANIFEST_FILENAME
+    if manifest_path.exists():
+        return previous_owned
+
+    timeline_path = project_root / "timeline.json"
+    if not timeline_path.exists():
+        return previous_owned
+    try:
+        timeline = read_json(timeline_path)
+    except DirectorError as exc:
+        print(f"warning: ignoring unreadable legacy timeline {timeline_path}: {exc}", file=sys.stderr)
+        return previous_owned
+
+    for collection, key, kind, suffix in (
+        ("elements", "imageUrl", "images", ".png"),
+        ("audio", "audioUrl", "audio", ".mp3"),
+    ):
+        entries = timeline.get(collection)
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict) or not isinstance(entry.get(key), str):
+                continue
+            filename = f"{entry[key]}{suffix}"
+            if is_safe_owned_filename(filename, suffix=suffix):
+                previous_owned[kind].add(filename)
+    return previous_owned
+
+
+def prune_unreferenced_generated_files(
+    *,
+    image_dir: Path,
+    audio_dir: Path,
+    previous_owned: dict[str, set[str]],
+    current_owned: dict[str, set[str]],
+) -> None:
+    """Prune stale files previously owned by Director; never infer ownership by scanning."""
+    if image_dir.name != "images" or audio_dir.name != "audio" or image_dir.parent != audio_dir.parent:
+        raise DirectorError("refusing to prune unexpected Director output directories")
+    for kind, directory, suffix in (
+        ("images", image_dir, ".png"),
+        ("audio", audio_dir, ".mp3"),
+    ):
+        stale_names = previous_owned.get(kind, set()) - current_owned.get(kind, set())
+        for name in sorted(stale_names):
+            if not is_safe_owned_filename(name, suffix=suffix):
+                continue
+            candidate = directory / name
+            if candidate.is_file() or candidate.is_symlink():
+                candidate.unlink()
+
+
 def read_json(path: Path) -> dict[str, Any]:
     try:
         with path.open(encoding="utf-8") as handle:
@@ -597,9 +1113,19 @@ def read_json(path: Path) -> dict[str, Any]:
 
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as handle:
-        json.dump(payload, handle, ensure_ascii=False, indent=2)
-        handle.write("\n")
+    serialized = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    if path.is_file():
+        try:
+            if path.read_text(encoding="utf-8") == serialized:
+                return
+        except UnicodeDecodeError:
+            pass
+    temporary = path.with_name(f".{path.name}.tmp")
+    try:
+        temporary.write_text(serialized, encoding="utf-8")
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def run(command: list[str]) -> subprocess.CompletedProcess[str]:

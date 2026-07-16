@@ -1,6 +1,6 @@
 ---
 name: umamusume-video-pipeline
-description: Use for this repository's local Uma Musume draft-to-video pipeline: turning draft/*.md into structured script JSON, generating per-line Qwen3-TTS or Fish Speech audio, building director-composited images and Remotion timeline content, applying the macOS pre-render memory gate, validating stills, and rendering MP4. Trigger when asked to create or update a story video, generate TTS, run director.py, build 1080p/4K content, validate Remotion output, or recover a failed pipeline step.
+description: "Use for this repository's local Uma Musume draft-to-video pipeline: turning draft/*.md into structured script JSON, generating per-line Qwen3-TTS or Fish Speech audio, building director-composited images and Remotion timeline content, applying the macOS pre-render memory gate, validating stills, and rendering MP4. Trigger when asked to create or update a story video, generate TTS, run director.py, build 1080p/4K content, validate Remotion output, or recover a failed pipeline step."
 ---
 
 # Umamusume Video Pipeline
@@ -19,8 +19,10 @@ Keep Remotion as a renderer. Do not move character semantics, speaker selection,
 
 - Agent writes `draft/*_script.json` from `draft/*.md`.
 - `scripts/synthesize_script.py` calls Qwen3-TTS or Fish Speech and writes `draft/*_audio/*.wav`.
-- `scripts/director.py` composites backgrounds and character sprites into `images/<line_id>.png`, converts audio to MP3, and writes `timeline.json`.
+- `scripts/audio_qc.py` validates WAVs, optionally scores them with one shared RoleTone model, and writes `qc_report.json` plus `retry_plan.json`.
+- `scripts/director.py` incrementally composites content-addressed `images/frame-<sha256>.png`, converts changed audio to MP3, and writes `timeline.json` plus `.director-manifest.json`.
 - Remotion reads `my-video/public/content/<project>/timeline.json`, plays PNG/MP3/subtitles, and renders video.
+- `scripts/render_4k60.sh` owns final 4K60 memory/TTS/disk gates, one-time minimal bundle, chunk rendering, resume, assembly, and media verification.
 
 Generated/local assets are ignored by git: `draft/`, `characters/`, `backgrounds/`, `my-video/public/content/`, `my-video/out/`.
 
@@ -30,7 +32,7 @@ Write a top-level object with `projectId`, `title`, and `lines`.
 
 Each line should use these fields:
 
-- `id`: stable line id; also used as image/audio basename.
+- `id`: stable logical line id. Audio commonly keeps it as a basename; Director images are content-addressed and may be shared by many lines.
 - `type`: `dialogue` or `narration`.
 - `speakerId`: character id matching `characters/<speaker_id>/`; use `trainer` for trainer.
 - `background`: alias in `scripts/background_catalog.json`.
@@ -279,51 +281,48 @@ PYCODE
 
 ### 5. Score TTS With RoleTone
 
-RoleTone is vendored in this repo at `third_party/RoleTone` and installed by `uv sync --extra all`.
-Use the project-local CLI, not the old external `/Volumes/.../RoleTone` project.
-
-Check the CLI and available devices:
-
-```bash
-.venv/bin/roletone --help
-.venv/bin/roletone devices
-```
-
-The repo-level `.env.example` contains the expected RoleTone defaults. The important variables are:
-
-```text
-HF_HOME=./modelsweights/huggingface
-HF_HUB_DISABLE_XET=1
-NUMBA_CACHE_DIR=/private/tmp/roletone_numba_cache
-ROLETONE_MODEL=wavlm-base-plus-sv
-ROLETONE_DEVICE=auto
-```
-
-Use CPU for comparable scoring unless there is a clear reason to benchmark another device.
-On this Mac environment `roletone devices` may report `mps` unavailable even when TTS itself uses MPS.
-
-Score a per-speaker candidate directory:
+Run the tracked QC stage after synthesis and before any TTS shutdown. RoleTone is explicit and
+offline by default; the tool groups lines by speaker, resolves each local reference, and loads one
+WavLM model for the whole run:
 
 ```bash
-NUMBA_CACHE_DIR=/private/tmp/roletone_numba_cache \
-.venv/bin/roletone score-dir \
-  --reference characters/kitasan_black/reference.mp3 \
-  --candidates-dir draft/kitasan_black_audio_candidates/roletone_revision/kitasan_black \
-  --pattern "*.wav" \
-  --output draft/kitasan_black_audio_candidates/kitasan_black_roletone_scores.csv \
-  --model sv \
-  --device cpu \
-  --hf-home ./modelsweights/huggingface \
-  --offline
+uv sync --extra all
 ```
 
-If a script's audio directory mixes multiple speakers, create a temporary per-speaker directory with symlinks or copies before scoring. The reference must match the candidate speaker, for example `characters/<speaker_id>/reference.mp3`.
+This one-time optional-extra install is required before using `--roletone`. Objective WAV checks
+work without it.
+
+```bash
+uv run python scripts/audio_qc.py check \
+  --script draft/endday_final_script.json \
+  --roletone
+```
+
+Read both generated files before continuing:
+
+- `draft/endday_final_audio_qc/qc_report.json`
+- `draft/endday_final_audio_qc/retry_plan.json`
 
 Treat low scores as a review queue, not an automatic failure. WavLM can false-negative on very short lines, noisy starts, breathy attacks, or lines with unusual emotion. For visibly low and audibly bad lines, try in this order:
 
 - Regenerate with the same text and low-temperature sampling.
 - Shorten or rephrase the spoken text while keeping subtitles unchanged if needed.
 - Use context generation plus cut: generate a longer line that leads into the target sentence, then cut out only the target audio.
+
+Put retry WAVs under a candidate directory and compare without mutation first:
+
+```bash
+uv run python scripts/audio_qc.py compare \
+  --script draft/endday_final_script.json \
+  --candidates-dir draft/endday_final_audio_retry \
+  --roletone
+```
+
+Only after reviewing `comparison_report.json`, repeat the same command with `--apply`. The apply
+phase verifies the reviewed script, settings, current-WAV hash, and candidate-WAV hash; stale bytes
+are refused. It keeps content-addressed backups of every replaced version and replaces only when the
+candidate strictly passes RoleTone and objective quality does not regress. If QC or repair changes
+audio, rerun Director before rendering.
 
 ### 6. Build Director Content
 
@@ -332,10 +331,9 @@ Build 4K:
 ```bash
 uv run python scripts/director.py build \
   --script draft/endday_final_script.json \
-  --project EndDay_Final_4k \
+  --project EndDay_Final_4k60 \
   --width 3840 \
-  --height 2160 \
-  --overwrite
+  --height 2160
 ```
 
 Build 1080p:
@@ -345,112 +343,53 @@ uv run python scripts/director.py build \
   --script draft/endday_final_script.json \
   --project EndDay_Final_1080p \
   --width 1920 \
-  --height 1080 \
-  --overwrite
+  --height 1080
 ```
 
-Verify counts and dimensions:
+Director owns `.director-manifest.json`. It reuses `frame-<sha256>.png` for identical visual
+inputs, skips unchanged images/audio, rewrites timing after changed audio, and prunes unreferenced
+generated PNG/MP3 files only after a successful build. Use `--overwrite` only to force a rebuild;
+within-run visual deduplication still applies.
+
+Verify dimensions, logical line count, and the smaller set of unique image references:
 
 ```bash
-file my-video/public/content/EndDay_Final_4k/images/t001.png
 uv run python - <<'PY'
 import json
-d = json.load(open("my-video/public/content/EndDay_Final_4k/timeline.json", encoding="utf-8"))
+d = json.load(open("my-video/public/content/EndDay_Final_4k60/timeline.json", encoding="utf-8"))
 print(d["width"], d["height"], len(d["elements"]), len(d["audio"]), len(d["text"]))
+print("unique_images", len({item["imageUrl"] for item in d["elements"]}))
 print(round(d["elements"][-1]["endMs"] / 1000, 2))
 PY
 ```
 
 ### 7. Pre-render Memory Safety (macOS)
 
-Run this gate after all TTS generation, RoleTone scoring, and audio repair are complete, but before any Remotion still or render command. Do not shut down the active TTS backend while more synthesis or retry work is pending.
+Do not shut down TTS while synthesis, QC, or retry work remains. Final 4K60 rendering must go
+through `scripts/render_4k60.sh`; it implements the authoritative gate:
 
-Record the backend used by this pipeline run and its loopback URL. Only inspect or stop a service that this run actually used and that is dedicated to this local pipeline; do not probe or stop an unrelated TTS service. If both backends were deliberately used, repeat the backend-specific checks for both. Fish Speech may also run on port `8001`, so a port number alone does not identify the backend.
+- Require the exact backend and loopback URL used by this run; never infer a backend from a port.
+- Health-check only that backend, request graceful shutdown, require `server_stopped: true`, and
+  confirm its TCP listener is gone. Only connection-refused means it was already stopped.
+- Measure `memory_pressure -Q` before and after shutdown. Missing/invalid output blocks rendering.
+- Require at least 40% post-shutdown free pressure for one worker. Each extra active Remotion
+  worker adds 10 percentage points of required headroom.
+- Require at least 20 GiB of free scratch per outer chunk job on both the temp and output volumes.
+- Never use `pkill` or process-name matching as a fallback.
 
-```bash
-: "${TTS_ENGINE:?set TTS_ENGINE to qwen3tts or fishspeech to match synthesis}"
-: "${TTS_URL:?set TTS_URL to the loopback URL used for synthesis}"
-LC_ALL=C memory_pressure -Q
-FREE_PERCENT="$(LC_ALL=C memory_pressure -Q | awk '/System-wide memory free percentage:/ {gsub(/%/, "", $NF); print $NF}')"
-echo "memory_pressure_free_percent=$FREE_PERCENT"
-case "$FREE_PERCENT" in
-  ''|*[!0-9]*) echo "invalid memory_pressure free percentage" >&2; exit 1 ;;
-esac
-if [ "$FREE_PERCENT" -lt 0 ] || [ "$FREE_PERCENT" -gt 100 ]; then
-  echo "memory_pressure free percentage out of range: $FREE_PERCENT" >&2
-  exit 1
-fi
-```
-
-Treat the `memory_pressure -Q` value as a free-percentage pressure indicator: higher is safer. Do not convert it into physical free GiB, and do not use swap-file count as the render gate. A missing, non-numeric, or out-of-range value blocks rendering.
-
-Query only the selected backend. Use the matching branch, not both commands unconditionally:
-
-```bash
-case "$TTS_ENGINE" in
-  qwen3tts) uv run my-tts qwen health --base-url "$TTS_URL" --timeout 5 ;;
-  fishspeech) uv run my-tts fish health --base-url "$TTS_URL" --timeout 5 ;;
-  *) echo "unsupported TTS_ENGINE: $TTS_ENGINE" >&2; exit 1 ;;
-esac
-```
-
-Apply these rules:
-
-- Qwen3-TTS is resident when `loaded_models` is non-empty; Fish Speech is resident when `loaded: true`.
-- Before any final render (1080p, 4K, or 4K60) or a full-resolution 4K still, gracefully stop the selected resident TTS service once no more TTS work is needed, even when memory pressure currently looks acceptable. Loaded local TTS models can retain substantial MPS/CPU memory.
-- A lightweight scaled 1080p still may keep the selected service running when `FREE_PERCENT >= 50`; otherwise stop it first if it is resident.
-- Only an explicit connection-refused/`ConnectError` result means the backend is already stopped. A timeout, HTTP error, schema mismatch, wrong service, or invalid JSON leaves the state unknown: verify `TTS_ENGINE` and `TTS_URL`, then block rendering until resolved.
-- Empty `loaded_models` or `loaded: false` means that backend has no model resident, but the post-check threshold below still applies.
-
-Request a graceful shutdown for the selected backend and wait for Uvicorn to exit:
-
-```bash
-case "$TTS_ENGINE" in
-  qwen3tts) uv run my-tts qwen shutdown --base-url "$TTS_URL" --timeout 5 --wait-timeout 60 ;;
-  fishspeech) uv run my-tts fish shutdown --base-url "$TTS_URL" --timeout 5 --wait-timeout 60 ;;
-esac
-```
-
-The result must contain `server_stopped: true`; a normal first request also has `status: accepted`, while an already-pending request may report `status: already_pending`. The server lets active TTS requests finish before exiting and rejects new requests after shutdown begins.
-
-For the strict render gate, also confirm that the selected service's TCP listener is gone; a non-200 health response alone is not sufficient proof that Uvicorn exited. Derive the port from `TTS_URL` and use this guard:
-
-```bash
-TTS_PORT="$(uv run python -c 'import sys; from urllib.parse import urlsplit; u=urlsplit(sys.argv[1]); print(u.port or (443 if u.scheme == "https" else 80))' "$TTS_URL")"
-if lsof -nP -iTCP:"$TTS_PORT" -sTCP:LISTEN; then
-  echo "TTS listener is still active on port $TTS_PORT" >&2
-  exit 1
-fi
-```
-
-If `lsof` still reports a listener, stop before rendering. Shutdown accepts only an explicit loopback URL; if synthesis used `0.0.0.0` as the server bind address, use `127.0.0.1` or `localhost` with the same port for the client command.
-
-Run `memory_pressure -Q` again after shutdown:
-
-- `FREE_PERCENT < 40`: do not start a 4K/4K60 Remotion render. Report the low-memory condition and wait for the user or for other processes to release memory.
-- `40 <= FREE_PERCENT < 50`: only use the serial, bounded-chunk low-memory render settings below.
-- `FREE_PERCENT >= 50`: rendering may start, but 4K/4K60 still defaults to one Remotion process.
-
-Also check temporary/output disk space before choosing non-parallel encoding:
-
-```bash
-df -h /private/tmp my-video/out
-```
-
-`--disallow-parallel-encoding` stores rendered frames before encoding. It lowers peak memory but increases temporary disk use, so use it on bounded chunks for long 4K/4K60 videos. Do not apply it to an unbounded long direct render without estimating scratch space first.
-
-If shutdown returns `403`, `404`, times out, omits `server_stopped: true`, or the listener remains, stop before rendering. On `404`, first verify that `TTS_ENGINE` and `TTS_URL` point to the correct service; only then conclude that the running server predates the admin endpoint. Ask the user to restart the updated server or close it manually. Do not fall back to broad `pkill`, process-name matching, or killing an unrelated Python process.
+If shutdown returns an error, times out, lacks exit confirmation, or the listener remains, stop.
+Restart an old TTS server with code that supports the admin shutdown endpoint before retrying.
 
 ### 8. Validate and Render Remotion
 
-Composition IDs cannot contain `_`. A content directory named `EndDay_Final_4k` is rendered with composition id `EndDay-Final-4k`.
+Composition IDs cannot contain `_`. A content directory named `EndDay_Final_4k60` is rendered with composition id `EndDay-Final-4k60`.
 
 Still validation:
 
 ```bash
 cd my-video
-pnpm exec remotion still EndDay-Final-4k \
-  --output /tmp/EndDay_Final_4k-still.png \
+pnpm exec remotion still EndDay-Final-4k60 \
+  --output /tmp/EndDay_Final_4k60-still.png \
   --frame=320 \
   --scale=0.25 \
   --concurrency=1
@@ -458,42 +397,42 @@ pnpm exec remotion still EndDay-Final-4k \
 
 Render stills one at a time. Never launch multiple 4K Remotion still/render commands through parallel tool calls or subagents.
 
-Final render:
+Final 4K60 render:
 
 ```bash
-cd my-video
-pnpm exec remotion render EndDay-Final-4k \
-  out/EndDay_Final_4k.mp4 \
-  --codec h264 \
-  --crf 20 \
-  --concurrency=1
+scripts/render_4k60.sh \
+  --project EndDay_Final_4k60 \
+  --tts-engine fishspeech \
+  --tts-url http://127.0.0.1:8002
 ```
 
-For chunked 4K/4K60 rendering, the safe default is exactly one chunk process and one Remotion renderer:
+The renderer defaults to `--jobs 1 --render-concurrency 1`. When the user explicitly wants
+parallel chunks, use `--jobs 2` first. It may use up to four total workers only when the increasing
+memory and scratch gates pass. Keep inner concurrency at one unless there is a measured reason to
+trade outer jobs for inner workers.
 
-```text
-MAX_JOBS=1
-RENDER_CONCURRENCY=1
-```
+The renderer acquires one repository-wide lock, creates a minimal public root containing only the
+target project, bundles Remotion exactly once, reuses that bundle for every chunk, uses bounded
+`--disallow-parallel-encoding`, and cleans the temporary bundle. It resumes only chunks whose media
+specification and SHA-256 render signature match, then rebuilds audio with a documented sub-
+millisecond codec-timestamp tolerance, fully decodes, and validates the final MP4. Do not use old
+standalone render/assembly implementations; any local project wrapper must contain parameters only
+and delegate to `scripts/render_4k60.sh`.
 
-For the low-memory or unattended path, pass `--disallow-parallel-encoding` to each bounded chunk render after the disk check. Do not reuse an older chunk script merely because it has `MAX_JOBS=1`: some existing scripts hard-code inner `--concurrency=2`, and older scripts may use up to four outer jobs. Make both levels configurable/default to `1`, and never run more than one chunk script at a time.
-
-Chunk scripts should acquire an atomic `mkdir` render lock and release it with a shell `trap`; if the lock already exists, refuse to start another 4K render. Do not silently delete a lock without confirming its owner process is gone. Use a minimal temporary `--public-dir` containing only a symlink to the target content project so Remotion does not scan all historical 4K projects.
-
-Resume only chunks that pass media validation and have a matching render signature; file existence alone is not sufficient.
-
-Current FPS is defined in `my-video/src/lib/constants.ts` as `FPS = 30`.
+`my-video/src/lib/constants.ts` keeps a 30fps fallback for ordinary previews. The unified renderer
+passes `renderFps: 60`; `Root.tsx` resolves the final composition metadata to 60fps. Do not change
+the fallback constant merely to produce a 4K60 final.
 
 ## Recovery Rules
 
 - TTS timeout: restart the selected backend, rerun synthesis; existing audio is skipped unless `--overwrite` is used.
-- TTS shutdown is only a phase transition after audio QC. If later audio repair is required, restart the selected backend, regenerate only the missing/flagged lines, repeat RoleTone/QC, then run the pre-render memory gate again.
+- TTS shutdown is only a phase transition after audio QC. If later repair is required, restart the selected backend, regenerate only flagged lines, rerun `audio_qc.py`, then rerun Director and the unified renderer.
 - Qwen3-TTS/Fish Speech shutdown `404`: the running server predates its admin endpoint. Do not start a memory-heavy render; have the user restart the updated server or close it manually.
 - Shutdown accepted but exit confirmation times out: do not render and do not use a broad process kill. Report which backend did not stop cleanly.
-- Character reference changed: rerun synthesis with `--speaker-id <id> --overwrite`, then rerun director.
-- Background, sprite, placement, subtitle text changed: rerun director; no TTS needed unless `spokenText` changed.
+- Character reference changed: rerun synthesis with `--speaker-id <id> --overwrite`, rerun QC, then rerun Director.
+- Background, sprite, placement, subtitle text changed: rerun Director without `--overwrite`; its manifest rebuilds only affected outputs. No TTS is needed unless `spokenText` changed.
 - Remotion subtitle/style code changed: rerun still/render; no TTS or director needed unless baked images must change.
-- Interrupted 4K/4K60 render: resume serially and only reuse chunks whose media specification and render signature still match the current timeline, assets, and Remotion source.
+- Interrupted 4K60 render: rerun `scripts/render_4k60.sh` with the same media parameters. Scheduling such as `--jobs` may change; only matching media/signature chunks are reused.
 
 ## Future Extensions
 
