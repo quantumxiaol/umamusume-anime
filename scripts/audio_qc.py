@@ -944,7 +944,7 @@ def apply_roletone(
             speakers.append(record)
             continue
         try:
-            results = run_roletone(
+            results, candidate_errors = run_roletone_resilient(
                 reference=reference,
                 candidates=[Path(entry["resolvedPath"]) for entry in speaker_entries],
                 repo_root=context.repo_root,
@@ -953,9 +953,15 @@ def apply_roletone(
             )
             result_by_path = {str(Path(item["candidate"]).expanduser().resolve()): item for item in results}
             for entry in speaker_entries:
-                result = result_by_path.get(str(Path(entry["resolvedPath"]).resolve()))
+                resolved_path = str(Path(entry["resolvedPath"]).resolve())
+                result = result_by_path.get(resolved_path)
                 if result is None:
-                    raise AudioQcError(f"RoleTone omitted {Path(entry['resolvedPath']).name}")
+                    error = candidate_errors.get(
+                        resolved_path,
+                        f"RoleTone omitted {Path(entry['resolvedPath']).name}",
+                    )
+                    mark_roletone_error([entry], error, args=args)
+                    continue
                 duration = float(entry["metrics"]["durationSec"])
                 threshold = roletone_threshold(duration, args)
                 score = float(result["score"])
@@ -1008,13 +1014,69 @@ def apply_roletone(
                         )
                     )
                     finalize_entry(entry)
-            record["roletoneStatus"] = "complete"
+            if candidate_errors:
+                record["roletoneStatus"] = "partial"
+                record["error"] = (
+                    f"RoleTone could not score {len(candidate_errors)} of "
+                    f"{len(speaker_entries)} candidate(s)"
+                )
+            else:
+                record["roletoneStatus"] = "complete"
         except AudioQcError as exc:
             record["roletoneStatus"] = "error"
             record["error"] = str(exc)
             mark_roletone_error(speaker_entries, str(exc), args=args)
         speakers.append(record)
     return speakers
+
+
+def run_roletone_resilient(
+    *,
+    reference: Path,
+    candidates: list[Path],
+    repo_root: Path,
+    args: argparse.Namespace,
+    scorer: Any | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """Score a group while isolating candidate-specific decoder/model failures.
+
+    RoleTone's batched API aborts the whole call when one extremely short WAV
+    cannot pass the model's convolution window. Split only failed batches so a
+    single bad candidate does not discard valid scores for the rest of a
+    speaker.
+    """
+    if not candidates:
+        return [], {}
+    try:
+        return (
+            run_roletone(
+                reference=reference,
+                candidates=candidates,
+                repo_root=repo_root,
+                args=args,
+                scorer=scorer,
+            ),
+            {},
+        )
+    except AudioQcError as exc:
+        if len(candidates) == 1:
+            return [], {str(candidates[0].expanduser().resolve()): str(exc)}
+        midpoint = len(candidates) // 2
+        left_results, left_errors = run_roletone_resilient(
+            reference=reference,
+            candidates=candidates[:midpoint],
+            repo_root=repo_root,
+            args=args,
+            scorer=scorer,
+        )
+        right_results, right_errors = run_roletone_resilient(
+            reference=reference,
+            candidates=candidates[midpoint:],
+            repo_root=repo_root,
+            args=args,
+            scorer=scorer,
+        )
+        return left_results + right_results, left_errors | right_errors
 
 
 def run_roletone(

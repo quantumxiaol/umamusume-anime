@@ -408,6 +408,82 @@ def test_in_process_roletone_loads_one_model_for_multiple_speakers(
     assert all(entry["voiceSimilarity"]["passed"] for entry in entries)
 
 
+def test_roletone_isolates_one_failed_candidate_without_losing_speaker_scores(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Result:
+        def __init__(self, candidate: Path) -> None:
+            self.candidate = candidate
+
+        def to_dict(self) -> dict[str, object]:
+            return {
+                "reference": str(tmp_path / "characters" / "a" / "reference.wav"),
+                "candidate": str(self.candidate),
+                "cosine": 0.8,
+                "score": 90.0,
+                "verdict": "likely",
+                "model": "sv",
+            }
+
+    class Scorer:
+        def load(self) -> None:
+            return None
+
+        def compare_many(self, _reference: Path, candidates: list[Path]) -> list[Result]:
+            if any(candidate.name == "too-short.wav" for candidate in candidates):
+                raise RuntimeError("candidate is shorter than the model window")
+            return [Result(candidate) for candidate in candidates]
+
+    monkeypatch.setattr(audio_qc, "make_roletone_scorer", lambda **_kwargs: Scorer())
+    character = tmp_path / "characters" / "a"
+    character.mkdir(parents=True)
+    (character / "reference.wav").write_bytes(b"reference")
+    entries = []
+    for index, filename in enumerate(("good-a.wav", "too-short.wav", "good-b.wav"), start=1):
+        path = tmp_path / filename
+        entries.append(
+            {
+                "id": f"l{index}",
+                "index": index,
+                "speakerId": "a",
+                "audio": filename,
+                "resolvedPath": str(path),
+                "exists": True,
+                "status": "pass",
+                "issues": [],
+                "metrics": {"durationSec": 2.0},
+                "qualityScore": 100.0,
+                "voiceSimilarity": None,
+            }
+        )
+    context = audio_qc.Context(
+        repo_root=tmp_path,
+        script_path=tmp_path / "script.json",
+        script={},
+        lines=[],
+    )
+    args = audio_qc.build_parser().parse_args(
+        [
+            "check",
+            "--repo-root",
+            str(tmp_path),
+            "--script",
+            str(context.script_path),
+            "--characters-root",
+            "characters",
+            "--roletone",
+        ]
+    )
+
+    speakers = audio_qc.apply_roletone(entries=entries, context=context, args=args)
+
+    assert speakers[0]["roletoneStatus"] == "partial"
+    assert entries[0]["voiceSimilarity"]["passed"] is True
+    assert entries[2]["voiceSimilarity"]["passed"] is True
+    assert entries[1]["voiceSimilarity"]["status"] == "error"
+    assert {item["code"] for item in entries[1]["issues"]} == {"roletone_failed"}
+
+
 def test_roletone_mismatch_and_short_leniency_are_review_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
