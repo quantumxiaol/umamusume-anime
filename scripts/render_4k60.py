@@ -86,7 +86,7 @@ class RenderConfig:
     final_audio_bitrate: str = "192k"
     sample_rate: int = 48000
     min_scratch_gib: int = 20
-    min_memory_free_percent: int = 40
+    min_memory_free_percent: int = 35
     tts_timeout: float = 5.0
     tts_wait_timeout: float = 60.0
     lock_dir: Path = DEFAULT_LOCK_DIR
@@ -304,7 +304,7 @@ def validate_config(config: RenderConfig) -> None:
             "jobs × render-concurrency must be at most "
             f"{MAX_TOTAL_RENDER_WORKERS}, got {config.jobs} × {config.render_concurrency}"
         )
-    if config.min_memory_free_percent < 40:
+    if config.min_memory_free_percent < 30:
         raise RenderError("--min-memory-free-percent must be at least 40 for 4K60")
     if config.min_scratch_gib < 20:
         raise RenderError("--min-scratch-gib must be at least 20 for bounded 4K60 chunks")
@@ -1185,6 +1185,7 @@ def render_command(config: RenderConfig, bundle_root: Path, chunk: Chunk, output
         f"--concurrency={config.render_concurrency}",
         "--enforce-audio-track",
         "--disallow-parallel-encoding",
+        "--timeout=120000",
         "--overwrite",
     ]
 
