@@ -2,6 +2,28 @@
 
 本项目把小说 draft 转成带角色配音、双语字幕和简单画面的 Remotion 视频。
 
+## Demo
+
+### 米浴《深夜的熟悉气息》
+
+「お兄さま。／哥哥大人。」
+
+![米浴《深夜的熟悉气息》视频画面](resource/demo/rice-shower-midnight-familiar.png)
+
+<audio controls src="resource/demo/rice-shower-midnight-familiar.wav"></audio>
+
+[打开或下载米浴 demo 音频](resource/demo/rice-shower-midnight-familiar.wav)
+
+### 强击《二十一番目のお願い》
+
+「市場を出たのにまだ手を離さないから、片手のチェックが枠からはみ出しちゃった。／都走出市集了你还不松手，害我单手画的勾都歪出方框了。」
+
+![强击《二十一番目のお願い》视频画面](resource/demo/vivlos-twenty-first-request.png)
+
+<audio controls src="resource/demo/vivlos-twenty-first-request.wav"></audio>
+
+[打开或下载强击 demo 音频](resource/demo/vivlos-twenty-first-request.wav)
+
 核心思路：
 
 ```text
