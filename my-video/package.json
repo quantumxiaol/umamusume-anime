@@ -1,6 +1,7 @@
 {
   "name": "my-video",
   "version": "1.0.0",
+  "packageManager": "pnpm@10.20.0",
   "description": "Create AI videos using remotion",
   "repository": {},
   "license": "UNLICENSED",
