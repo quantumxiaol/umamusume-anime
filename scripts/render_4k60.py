@@ -70,6 +70,7 @@ class RenderConfig:
     tts_url: str
     jobs: int = 1
     render_concurrency: int = 1
+    frame_reuse: bool = True
     fps: int = 60
     intro_frames: int = 60
     chunk_frames: int = 3000
@@ -227,6 +228,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Remotion concurrency inside each chunk process (default 1).",
     )
     parser.add_argument("--chunk-frames", type=positive_int, default=3000)
+    parser.add_argument("--no-frame-reuse", action="store_true", help="Use legacy per-frame browser rendering for comparison.")
     parser.add_argument("--crf", type=int, default=18)
     parser.add_argument("--x264-preset", default="medium")
     parser.add_argument("--min-scratch-gib", type=positive_int, default=20)
@@ -275,6 +277,7 @@ def config_from_args(args: argparse.Namespace, *, repo_root: Path | None = None)
         jobs=args.jobs,
         render_concurrency=args.render_concurrency,
         chunk_frames=args.chunk_frames,
+        frame_reuse=not args.no_frame_reuse,
         crf=args.crf,
         x264_preset=args.x264_preset,
         min_scratch_gib=args.min_scratch_gib,
@@ -939,6 +942,7 @@ def hash_paths(paths: Sequence[Path], *, root: Path) -> str:
 
 def source_files(config: RenderConfig) -> list[Path]:
     files = [path for path in (config.video_root / "src").rglob("*") if path.is_file()]
+    files.append(config.video_root / "cli" / "render-static-chunk.ts")
     for name in ("remotion.config.ts", "package.json", "pnpm-lock.yaml", "tsconfig.json"):
         path = config.video_root / name
         if not path.is_file():
@@ -973,6 +977,7 @@ def build_render_signature(config: RenderConfig, timeline: TimelineInfo) -> str:
         "finalAudioBitrate": config.final_audio_bitrate,
         "sampleRate": config.sample_rate,
         "parallelEncoding": False,
+        "staticFrameReuse": config.frame_reuse,
         "timelineSha256": hash_file(config.timeline_path),
         "assetsSha256": hash_paths(asset_paths, root=config.repo_root),
         "remotionSha256": hash_paths(source_files(config), root=config.repo_root),
@@ -1164,6 +1169,10 @@ def prepare_chunk(
 
 
 def render_command(config: RenderConfig, bundle_root: Path, chunk: Chunk, output: Path) -> list[str]:
+    if config.frame_reuse:
+        return ["pnpm", "exec", "tsx", "cli/render-static-chunk.ts", str(bundle_root),
+                config.composition, str(output), str(chunk.start), str(chunk.end),
+                str(config.fps), str(config.crf), config.x264_preset, str(config.render_concurrency)]
     return [
         "pnpm",
         "exec",

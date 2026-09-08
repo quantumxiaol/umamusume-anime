@@ -1,5 +1,12 @@
 import { Audio } from "@remotion/media";
-import { AbsoluteFill, Sequence, staticFile, useVideoConfig } from "remotion";
+import {
+  AbsoluteFill,
+  Freeze,
+  Sequence,
+  staticFile,
+  useVideoConfig,
+  useCurrentFrame,
+} from "remotion";
 import { z } from "zod";
 import { DEFAULT_FPS, introDurationFrames } from "../lib/constants";
 import { TimelineSchema } from "../lib/types";
@@ -11,11 +18,27 @@ export const aiVideoSchema = z.object({
   contentProject: z.string(),
   timeline: TimelineSchema.nullable(),
   renderFps: z.number().optional(),
+  frameMap: z.array(z.number().int().nonnegative()).optional(),
 });
 
 const titleFontFamily = "Georgia, 'Times New Roman', serif";
 
-export const AIVideo: React.FC<z.infer<typeof aiVideoSchema>> = ({
+export const AIVideo: React.FC<z.infer<typeof aiVideoSchema>> = (props) => {
+  const frame = useCurrentFrame();
+  if (props.frameMap) {
+    const originalFrame = props.frameMap[frame];
+    if (originalFrame === undefined)
+      throw new Error(`Missing mapped frame ${frame}`);
+    return (
+      <Freeze frame={originalFrame}>
+        <StoryVideo {...props} />
+      </Freeze>
+    );
+  }
+  return <StoryVideo {...props} />;
+};
+
+const StoryVideo: React.FC<z.infer<typeof aiVideoSchema>> = ({
   contentProject,
   timeline,
 }) => {

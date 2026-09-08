@@ -38,6 +38,8 @@ def make_config(
     (video / "out").mkdir(parents=True, exist_ok=True)
     (video / "src").mkdir(parents=True, exist_ok=True)
     (video / "src" / "index.ts").write_text("export {};\n", encoding="utf-8")
+    (video / "cli").mkdir(exist_ok=True)
+    (video / "cli" / "render-static-chunk.ts").write_text("export {};\n")
     for name in ("remotion.config.ts", "package.json", "pnpm-lock.yaml", "tsconfig.json"):
         (video / name).write_text(f"{name}\n", encoding="utf-8")
     return renderer.RenderConfig(
@@ -219,10 +221,13 @@ def test_render_commands_reuse_prebuilt_bundle() -> None:
     first = renderer.render_command(config, bundle, renderer.Chunk(0, 0, 2999), Path("first.mp4"))
     second = renderer.render_command(config, bundle, renderer.Chunk(1, 3000, 5999), Path("second.mp4"))
 
-    assert first[3:6] == ["render", str(bundle), "P"]
-    assert second[3:6] == ["render", str(bundle), "P"]
+    assert first[3:6] == ["cli/render-static-chunk.ts", str(bundle), "P"]
+    assert second[3:6] == ["cli/render-static-chunk.ts", str(bundle), "P"]
     assert not any(argument.startswith("--public-dir") for argument in first + second)
-    assert "--enforce-audio-track" in first
+    legacy = renderer.render_command(replace(config, frame_reuse=False), bundle,
+                                     renderer.Chunk(0, 0, 2999), Path("legacy.mp4"))
+    assert "--enforce-audio-track" in legacy
+    assert "--disallow-parallel-encoding" in legacy
 
 
 def media_probe_payload(*, audio_samples: int, time_base: str = "1/48000") -> dict[str, object]:
