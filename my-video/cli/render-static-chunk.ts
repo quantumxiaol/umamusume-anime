@@ -100,24 +100,10 @@ async function main() {
         join(sequence, `${String(frame).padStart(8, "0")}.jpg`),
       );
     }
-    const audio = join(temp, "audio.wav");
-    await renderer.renderMedia({
-      serveUrl: bundle,
-      composition,
-      inputProps,
-      puppeteerInstance: browser,
-      codec: "wav",
-      outputLocation: audio,
-      frameRange: [start, end],
-      sampleRate: 48000,
-      enforceAudioTrack: true,
-      concurrency,
-      overwrite: true,
-    });
+    // Audio is assembled once from the original timeline by the Python driver.
     await browser.close({ silent: true });
     browser = undefined;
     const audioDone = performance.now();
-    const samples = (plan.indices.length * 48000) / fps;
     const ffmpeg = renderer.RenderInternals.getExecutablePath({
       type: "ffmpeg",
       indent: false,
@@ -134,12 +120,8 @@ async function main() {
         String(fps),
         "-i",
         join(sequence, "%08d.jpg"),
-        "-i",
-        audio,
         "-map",
         "0:v:0",
-        "-map",
-        "1:a:0",
         "-frames:v",
         String(plan.indices.length),
         "-c:v",
@@ -150,16 +132,7 @@ async function main() {
         crf,
         "-pix_fmt",
         "yuvj420p",
-        "-af",
-        `aresample=48000:async=0:first_pts=0,apad=whole_len=${samples},atrim=end_sample=${samples},asetpts=N/SR/TB`,
-        "-c:a",
-        "aac",
-        "-b:a",
-        "320k",
-        "-ar",
-        "48000",
-        "-ac",
-        "2",
+        "-an",
         "-movflags",
         "+faststart",
         output,
@@ -181,7 +154,7 @@ async function main() {
         browserFrames: plan.representatives.length,
         outputFrames: plan.indices.length,
         browserSeconds: (framesDone - started) / 1000,
-        audioSeconds: (audioDone - framesDone) / 1000,
+        cleanupSeconds: (audioDone - framesDone) / 1000,
         encodeSeconds: (performance.now() - audioDone) / 1000,
       }),
     );

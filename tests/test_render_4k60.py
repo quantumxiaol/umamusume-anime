@@ -5,6 +5,7 @@ import json
 import signal
 import sys
 import threading
+import wave
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
@@ -16,6 +17,94 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts import render_4k60 as renderer
+
+
+def test_direct_audio_samples_gaps_trim_and_padding(tmp_path, monkeypatch):
+    config = make_config(tmp_path)
+    write_json(config.timeline_path, {"audio": [
+        {"startMs": 0, "endMs": 10, "audioUrl": "first"},
+        {"startMs": 110, "endMs": 120, "audioUrl": "second"},
+    ]})
+    for name in ("first", "second"):
+        (config.project_root / "audio" / f"{name}.mp3").write_bytes(b"test")
+    calls = []
+    def decode(command):
+        calls.append(command)
+        # First source is too short, second too long; exercise both directions.
+        count = 240 if len(calls) == 1 else 960
+        Path(command[-1]).write_bytes(b"\x01\x00\x02\x00" * count)
+    monkeypatch.setattr(renderer, "run_command", decode)
+    output = tmp_path / "audio.wav"
+    renderer.build_timeline_audio(config, 120, output)
+    with wave.open(str(output)) as audio:
+        assert audio.getparams()[:3] == (2, 2, 48000)
+        assert audio.getnframes() == 96000
+        pcm = audio.readframes(96000)
+    assert pcm[:48000*4] == b"\0" * (48000*4)
+    assert pcm[48000*4:48240*4] == b"\x01\x00\x02\x00" * 240
+    assert pcm[48240*4:53280*4] == b"\0" * ((53280-48240)*4)
+    assert pcm[53280*4:53760*4] == b"\x01\x00\x02\x00" * 480
+    assert pcm[53760*4:] == b"\0" * ((96000-53760)*4)
+    assert len(calls) == 2
+
+
+def test_direct_audio_empty_and_overlap(tmp_path):
+    config = make_config(tmp_path)
+    write_json(config.timeline_path, {"audio": []})
+    output = tmp_path / "silent.wav"
+    renderer.build_timeline_audio(config, 60, output)
+    with wave.open(str(output)) as audio:
+        assert audio.readframes(48000) == b"\0" * 192000
+    (config.project_root / "audio" / "a.mp3").touch()
+    write_json(config.timeline_path, {"audio": [
+        {"startMs": 0, "endMs": 20, "audioUrl": "a"},
+        {"startMs": 10, "endMs": 30, "audioUrl": "a"},
+    ]})
+    with pytest.raises(renderer.RenderError, match="non-overlapping"):
+        renderer.build_timeline_audio(config, 60, output)
+
+
+def test_direct_audio_missing_asset(tmp_path):
+    config = make_config(tmp_path)
+    write_json(config.timeline_path, {"audio": [
+        {"startMs": 0, "endMs": 10, "audioUrl": "missing"},
+    ]})
+    with pytest.raises(renderer.RenderError, match="missing timeline audio"):
+        renderer.build_timeline_audio(config, 60, tmp_path / "missing.wav")
+
+
+def test_direct_audio_clips_to_final_frame_not_next_frame(tmp_path, monkeypatch):
+    config = make_config(tmp_path)
+    write_json(config.timeline_path, {"audio": [
+        {"startMs": 1, "endMs": 1000, "audioUrl": "a"},
+    ]})
+    (config.project_root / "audio" / "a.mp3").touch()
+    monkeypatch.setattr(renderer, "run_command", lambda cmd:
+        Path(cmd[-1]).write_bytes(b"\x01\x00\x01\x00" * 48000))
+    output = tmp_path / "clipped.wav"
+    renderer.build_timeline_audio(config, 61, output)
+    with wave.open(str(output)) as audio:
+        assert audio.getnframes() == 48800
+        pcm = audio.readframes(48800)
+    # A 1ms start is 48 samples, not rounded to a 60fps frame boundary.
+    assert pcm[:48048*4] == b"\0" * (48048*4)
+    assert pcm[48048*4:] == b"\x01\x00\x01\x00" * 752
+
+
+def test_video_only_chunk_validation_is_explicit(tmp_path, monkeypatch):
+    config = make_config(tmp_path)
+    media = tmp_path / "video.mp4"
+    media.touch()
+    payload = media_probe_payload(audio_samples=2400000)
+    payload["streams"] = payload["streams"][:1]
+    monkeypatch.setattr(renderer, "probe_media", lambda path: payload)
+    assert renderer.media_is_valid(config, media, expected_frames=3000,
+        expected_audio_codec=None, label="chunk")
+    assert not renderer.media_is_valid(config, media, expected_frames=3000,
+        expected_audio_codec="aac", label="final")
+    payload["streams"].append(media_probe_payload(audio_samples=2400000)["streams"][1])
+    assert not renderer.media_is_valid(config, media, expected_frames=3000,
+        expected_audio_codec=None, label="chunk")
 
 
 def write_json(path: Path, payload: object) -> None:

@@ -35,6 +35,7 @@ import sys
 import tempfile
 import threading
 import time
+import wave
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -43,7 +44,7 @@ from typing import Any, Callable, Iterator, Sequence
 from urllib.parse import urlsplit
 
 
-RENDERER_VERSION = 1
+RENDERER_VERSION = 2
 DEFAULT_LOCK_DIR = Path("/private/tmp/umamusume-anime-4k-render.lock")
 DEFAULT_TEMP_ROOT = Path("/private/tmp")
 MAX_OUTER_JOBS = 4
@@ -1065,7 +1066,7 @@ def media_is_valid(
     path: Path,
     *,
     expected_frames: int,
-    expected_audio_codec: str,
+    expected_audio_codec: str | None,
     label: str,
 ) -> bool:
     if not path.is_file():
@@ -1077,8 +1078,11 @@ def media_is_valid(
         return False
     video = _stream(payload, "video")
     audio = _stream(payload, "audio")
-    if video is None or audio is None:
+    if video is None or (expected_audio_codec is not None and audio is None):
         return False
+    if expected_audio_codec is None and audio is not None:
+        return False
+    audio = audio or {}
     encoder = str((video.get("tags") or {}).get("encoder", "")) if isinstance(video.get("tags"), dict) else ""
     frame_count = _int_value(video.get("nb_read_frames") or video.get("nb_frames"))
     expected_sample_numerator = expected_frames * config.sample_rate
@@ -1104,12 +1108,14 @@ def media_is_valid(
             video.get("avg_frame_rate") == f"{config.fps}/1",
             video.get("pix_fmt") == config.expected_pixel_format,
             frame_count == expected_frames,
-            audio.get("codec_name") == expected_audio_codec,
-            str(audio.get("sample_rate")) == str(config.sample_rate),
-            audio.get("channels") == 2,
-            audio.get("time_base") == f"1/{config.sample_rate}",
-            audio_sample_delta is not None
-            and audio_sample_delta <= AAC_DURATION_TOLERANCE_SAMPLES,
+            expected_audio_codec is None or all((
+                audio.get("codec_name") == expected_audio_codec,
+                str(audio.get("sample_rate")) == str(config.sample_rate),
+                audio.get("channels") == 2,
+                audio.get("time_base") == f"1/{config.sample_rate}",
+                audio_sample_delta is not None
+                and audio_sample_delta <= AAC_DURATION_TOLERANCE_SAMPLES,
+            )),
         )
     )
     print(
@@ -1141,7 +1147,7 @@ def prepare_chunk(
                 config,
                 paths.media,
                 expected_frames=chunk.frame_count,
-                expected_audio_codec=config.chunk_audio_codec,
+                expected_audio_codec=None if config.frame_reuse else config.chunk_audio_codec,
                 label="chunk",
             )
             if valid:
@@ -1154,7 +1160,7 @@ def prepare_chunk(
             config,
             paths.partial_media,
             expected_frames=chunk.frame_count,
-            expected_audio_codec=config.chunk_audio_codec,
+            expected_audio_codec=None if config.frame_reuse else config.chunk_audio_codec,
             label="partial chunk",
         ):
             os.replace(paths.partial_media, paths.media)
@@ -1234,7 +1240,7 @@ def render_chunk(
         config,
         paths.partial_media,
         expected_frames=chunk.frame_count,
-        expected_audio_codec=config.chunk_audio_codec,
+        expected_audio_codec=None if config.frame_reuse else config.chunk_audio_codec,
         label="chunk",
     ):
         raise RenderError(f"chunk {chunk.index} failed post-render media validation; see {paths.log}")
@@ -1400,6 +1406,84 @@ def cleanup_assembly(config: RenderConfig) -> None:
         )
 
 
+def build_timeline_audio(config: RenderConfig, total_frames: int, output: Path) -> None:
+    """Stream non-overlapping Director dialogue into one sample-exact stereo WAV.
+
+    Decode one clip at a time; memory use is bounded independently of story length.
+    Use timeline milliseconds (not rounded video frames), including the title offset.
+    Unsupported overlapping audio is rejected rather than silently dropping a track.
+    """
+    started = time.monotonic()
+    rate = config.sample_rate
+    if total_frames * rate % config.fps or config.intro_frames * rate % config.fps:
+        raise RenderError("timeline audio requires integral sample counts")
+    total = total_frames * rate // config.fps
+    intro = config.intro_frames * rate // config.fps
+    timeline = read_json_object(config.timeline_path)
+    clips = []
+    previous_end = 0
+    for item in sorted(timeline.get("audio", []), key=lambda item: item["startMs"]):
+        start_ms = _millisecond(item.get("startMs"), label="audio start")
+        end_ms = _millisecond(item.get("endMs"), label="audio end")
+        start = intro + (start_ms * rate + 500) // 1000
+        end = intro + (end_ms * rate + 500) // 1000
+        if start < previous_end or end <= start:
+            raise RenderError("direct timeline audio requires non-overlapping positive intervals")
+        previous_end = end
+        name = _safe_asset_name(item.get("audioUrl"), label="audioUrl")
+        source = config.project_root / "audio" / f"{name}.mp3"
+        if not source.is_file():
+            raise RenderError(f"missing timeline audio: {source}")
+        clips.append((start, min(end, total), source))
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    partial = output.with_suffix(".partial.wav")
+    try:
+        with wave.open(str(partial), "wb") as writer:
+            writer.setparams((2, 2, rate, 0, "NONE", "not compressed"))
+            def silence(samples: int) -> None:
+                while samples:
+                    count = min(samples, 16384)
+                    writer.writeframesraw(b"\0" * (count * 4))
+                    samples -= count
+
+            cursor = 0
+            with tempfile.TemporaryDirectory(prefix="timeline-pcm-", dir=output.parent) as temp:
+                decoded = Path(temp) / "clip.pcm"
+                for start, end, source in clips:
+                    if start >= total:
+                        break
+                    silence(start - cursor)
+                    count = end - start
+                    run_command([
+                        "ffmpeg", "-y", "-v", "error", "-i", str(source),
+                        "-map", "0:a:0", "-vn", "-af",
+                        f"aresample={rate}:async=0:first_pts=0,atrim=end_sample={count}",
+                        "-ar", str(rate), "-ac", "2", "-c:a", "pcm_s16le",
+                        "-f", "s16le", str(decoded),
+                    ])
+                    remaining = count * 4
+                    with decoded.open("rb") as reader:
+                        while remaining:
+                            block = reader.read(min(remaining, 65536))
+                            if not block:
+                                break
+                            if len(block) % 4:
+                                raise RenderError("unaligned PCM decoder output")
+                            writer.writeframesraw(block)
+                            remaining -= len(block)
+                    silence(remaining // 4)
+                    cursor = end
+                silence(total - cursor)
+        with wave.open(str(partial), "rb") as result:
+            if result.getnframes() != total:
+                raise RenderError("timeline PCM sample count mismatch")
+        os.replace(partial, output)
+    finally:
+        partial.unlink(missing_ok=True)
+    print(f"timeline audio: clips={len(clips)} samples={total} seconds={time.monotonic() - started:.3f}")
+
+
 def assemble_final(
     config: RenderConfig,
     chunks: Sequence[Chunk],
@@ -1425,12 +1509,17 @@ def assemble_final(
             config,
             paths.media,
             expected_frames=chunk.frame_count,
-            expected_audio_codec=config.chunk_audio_codec,
+            expected_audio_codec=None if config.frame_reuse else config.chunk_audio_codec,
             label="chunk",
         ):
             raise RenderError(f"chunk media specification mismatch: {paths.media}")
         if not signature_matches(paths.signature, signature):
             raise RenderError(f"chunk render signature missing or stale: {paths.signature}")
+
+        if config.frame_reuse:
+            seconds = chunk.frame_count / config.fps
+            video_lines.extend((f"file {ffconcat_quote(paths.media)}", f"duration {seconds:.9f}"))
+            continue
 
         numerator = chunk.frame_count * config.sample_rate
         if numerator % config.fps:
@@ -1473,6 +1562,11 @@ def assemble_final(
             )
         video_lines.extend((f"file {ffconcat_quote(paths.media)}", f"duration {seconds:.9f}"))
         audio_lines.append(f"file {ffconcat_quote(wav)}")
+
+    if config.frame_reuse:
+        master_audio = work / "timeline.wav"
+        build_timeline_audio(config, total_frames, master_audio)
+        audio_lines.append(f"file {ffconcat_quote(master_audio)}")
 
     atomic_write_text(video_list, "\n".join(video_lines) + "\n")
     atomic_write_text(audio_list, "\n".join(audio_lines) + "\n")
