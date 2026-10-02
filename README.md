@@ -37,6 +37,9 @@ draft/*.md
 
 Remotion 只负责播放图片、音频和字幕，不负责理解角色、场景、谁在说话。
 
+定位成片中的台词、单句/角色返修、音频指纹、浏览器字幕预检和分阶段生产，现在统一由
+`scripts/video_workflow.py` 提供固定入口。见 [定位与返修工作流](docs/video-workflow.md)。
+
 ---
 
 ## 现在做什么
@@ -351,6 +354,7 @@ fish-tts-server \
 uv run python scripts/synthesize_script.py \
   --script draft/endday_final_script.json \
   --tts-engine qwen3tts \
+  --model-id qwen3tts-local-v1 \
   --qwen3tts-url http://127.0.0.1:8001 \
   --timeout 900 \
   --top-p 0.8 \
@@ -363,6 +367,7 @@ uv run python scripts/synthesize_script.py \
 uv run python scripts/synthesize_script.py \
   --script draft/endday_final_script.json \
   --tts-engine fishspeech \
+  --model-id s2-pro-local-v1 \
   --fish-tts-url http://127.0.0.1:8002 \
   --timeout 900 \
   --batch-size 4 \
@@ -388,6 +393,7 @@ Fish Speech 目标文本会默认自动补 `<|speaker:0|>`。推荐在 script JS
 uv run python scripts/synthesize_script.py \
   --script draft/endday_final_script.json \
   --tts-engine fishspeech \
+  --model-id s2-pro-local-v1 \
   --fish-tts-url http://127.0.0.1:8002 \
   --batch-size 4 \
   --fish-style energetic \
@@ -404,6 +410,7 @@ uv run python scripts/synthesize_script.py \
 uv run python scripts/synthesize_script.py \
   --script draft/endday_final_script.json \
   --tts-engine fishspeech \
+  --model-id s2-pro-local-v1 \
   --fish-tts-url http://127.0.0.1:8002 \
   --speaker-id rice_shower \
   --overwrite \
@@ -643,7 +650,7 @@ Agent 在处理本项目视频任务时应使用该 Skill。它固化了：
 
 ## 失败恢复
 
-- TTS 中断：重启 TTS 服务，重新跑 `synthesize_script.py`，已有音频默认跳过。
+- TTS 中断：重启 TTS 服务，以相同参数重新跑 `synthesize_script.py`；指纹匹配的音频跳过。旧 WAV 无记录时需明确 `--reuse-unverified`，已知过期音频不能静默复用。
 - 角色参考音频更新：用 `--speaker-id <id> --overwrite` 只重做该角色。
 - 音频需要复查：重新运行 `audio_qc.py check --roletone`；候选音频先用 `compare`，确认后才 `--apply`。
 - 背景、立绘、站位变了：直接重新跑 `director.py build`，manifest 只重绘受影响画面。

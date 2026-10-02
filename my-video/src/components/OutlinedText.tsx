@@ -9,6 +9,7 @@ export const OutlinedText: React.FC<{
   fontWeight?: CSSProperties["fontWeight"];
   lineHeight?: CSSProperties["lineHeight"];
   style?: CSSProperties;
+  role?: "speaker" | "ja" | "zh";
 }> = ({
   children,
   fontSize,
@@ -17,9 +18,11 @@ export const OutlinedText: React.FC<{
   fontWeight = 800,
   lineHeight = 1.25,
   style,
+  role,
 }) => {
   return (
     <div
+      data-subtitle-role={role}
       style={{
         color,
         fontFamily: subtitleFontFamily,

@@ -3,8 +3,18 @@ from __future__ import annotations
 import argparse
 import json
 import tempfile
+import sys
 from pathlib import Path
 from typing import Any
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    # Manifest helpers import this module lazily; share the same exception/helpers
+    # when invoked as a file instead of loading a second __main__ module instance.
+    sys.modules["scripts.synthesize_script"] = sys.modules[__name__]
+
+from scripts.tts_manifest import cache_status, record, request_fingerprint
+from scripts.workflow_io import lines as validated_lines, write as write_json
 
 from my_tts.cli import (
     CliError,
@@ -35,7 +45,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         synthesize_script(args)
-    except (CliError, SynthesisError) as exc:
+    except (CliError, SynthesisError, ValueError, OSError) as exc:
         print(f"error: {exc}")
         return 2
     return 0
@@ -66,6 +76,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Only synthesize lines with this id. Can be passed more than once.",
     )
     parser.add_argument("--overwrite", action="store_true", help="Regenerate existing audio files.")
+    parser.add_argument("--model-id", help="Operator-supplied model/checkpoint version; change when weights or server defaults change.")
+    parser.add_argument("--reuse-unverified", action="store_true", help="Explicitly keep legacy WAVs without receipts (never permits stale/modified WAVs).")
+    parser.add_argument("--audit", action="store_true", help="Report cache status without contacting TTS or writing audio.")
+    parser.add_argument("--audit-output", help="Optional JSON report for --audit.")
     parser.add_argument("--max-new-tokens", type=int)
     parser.add_argument(
         "--non-streaming-mode",
@@ -150,28 +164,52 @@ def build_parser() -> argparse.ArgumentParser:
 def synthesize_script(args: argparse.Namespace) -> None:
     script_path = Path(args.script).expanduser().resolve()
     script = read_json(script_path)
-    lines = flatten_lines(script)
+    lines = validated_lines(script)
     targets = [line for line in lines if line.get("audio")]
     if args.speaker_id:
         speaker_ids = set(args.speaker_id)
+        if speaker_ids - {line.get("speakerId") for line in targets}:
+            raise SynthesisError("Unknown or unvoiced --speaker-id")
         targets = [line for line in targets if str(line.get("speakerId") or "") in speaker_ids]
     if args.line_id:
         line_ids = set(args.line_id)
+        if line_ids - {line.get("id") for line in lines if line.get("audio")}:
+            raise SynthesisError("Unknown or unvoiced --line-id")
         targets = [line for line in targets if str(line.get("id") or "") in line_ids]
     if not targets:
         print("no audio targets found")
         return
 
     pending: list[dict[str, Any]] = []
+    audit = []
+    blocked = []
+    args._requests = {}
     for index, line in enumerate(targets, start=1):
         line_id = str(line.get("id") or f"line_{index:03d}")
         output_path = Path(str(line["audio"])).expanduser()
-        if output_path.exists() and not args.overwrite:
-            print(f"[{index}/{len(targets)}] skip existing {line_id}: {output_path}", flush=True)
+        request = request_fingerprint(line, args)
+        args._requests[line_id] = request
+        status = cache_status(output_path, request)
+        audit.append({"id": line_id, "speakerId": line["speakerId"], "audio": str(output_path), "status": status})
+        if args.audit:
+            print(f"{line_id}: {status}")
+        elif output_path.exists() and not args.overwrite:
+            if status in ("fresh", "accepted") or (status == "unverified" and args.reuse_unverified):
+                print(f"[{index}/{len(targets)}] keep {status} {line_id}: {output_path}", flush=True)
+            else:
+                blocked.append(f"{line_id}={status}")
         else:
             pending.append(line)
+    if args.audit:
+        if args.audit_output:
+            write_json(Path(args.audit_output), {"lines": audit})
+        return
+    if blocked:
+        raise SynthesisError("Audio requires review: " + ", ".join(blocked) +
+                             ". Use video_workflow repair, or explicitly --overwrite selected lines. "
+                             "Legacy only: --reuse-unverified preserves without claiming verification.")
     if not pending:
-        print("all audio targets already exist")
+        print("all selected audio targets retained")
         return
 
     if args.tts_engine == "fishspeech":
@@ -299,6 +337,7 @@ def synthesize_batches(
                         destination=output_path.resolve(),
                     )
                 completed += 1
+                record_generated(line, args)
                 print(
                     f"[{completed}/{total}] {line_id} speaker={speaker_id} batch-output={stored.get('filename', 'audio.wav')}",
                     flush=True,
@@ -321,10 +360,6 @@ def synthesize_line(
         raise SynthesisError(f"line {line_id} has audio but no speakerId")
 
     output_path = Path(str(line["audio"])).expanduser()
-    if output_path.exists() and not args.overwrite:
-        print(f"[{index}/{total}] skip existing {line_id}: {output_path}", flush=True)
-        return
-
     character_dir = resolve_character_dir(characters_root=characters_root, speaker_id=speaker_id)
     reference_audio = resolve_reference_audio(character_dir=character_dir, speaker_id=speaker_id)
     reference_text = resolve_existing(character_dir / "reference_jp.txt", label=f"{speaker_id} reference text").read_text(
@@ -373,6 +408,16 @@ def synthesize_line(
     else:
         assert isinstance(client, Qwen3TTSClient)
         materialize_qwen_stored_audio(client=client, stored=stored, destination=output_path.resolve())
+    record_generated(line, args)
+
+
+def record_generated(line: dict[str, Any], args: argparse.Namespace) -> None:
+    request = request_fingerprint(line, args)
+    if request != args._requests[line["id"]]:
+        raise SynthesisError(f"Reference/settings changed during generation: {line['id']}; output is unverified")
+    endpoint = args.fish_tts_url if args.tts_engine == "fishspeech" else args.qwen3tts_url
+    settings = {key: value for key, value in vars(args).items() if not key.startswith("_")}
+    record(Path(line["audio"]).resolve(), line, request, endpoint=endpoint, settings=settings)
 
 
 def chunk_lines(lines: list[dict[str, Any]], batch_size: int) -> list[list[dict[str, Any]]]:

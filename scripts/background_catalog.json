@@ -1843,5 +1843,45 @@
     "source": "backgrounds/Bg 0301 00130.png",
     "name_zh": "洞穴海滩",
     "variant": "night"
+  },
+  "coin_laundry_autumn_day": {
+    "source": "backgrounds/generated_today_wind_coin_laundry.png",
+    "name_zh": "自助洗衣店",
+    "variant": "autumn_day"
+  },
+  "fishing_shop_rain": {
+    "source": "backgrounds/generated_cheval_fishing_shop_rain.png",
+    "name_zh": "雨天钓具店",
+    "variant": "rain"
+  },
+  "aquarium_cafe_bright": {
+    "source": "backgrounds/generated_cafe_bright_waterfront.png",
+    "name_zh": "水族馆临水咖啡厅",
+    "variant": "late_afternoon_generated"
+  },
+  "train_card_table_day": {
+    "source": "backgrounds/generated_train_card_table_day.png",
+    "name_zh": "郊游列车对坐小桌",
+    "variant": "day_generated"
+  },
+  "private_terrace_cloudy_night": {
+    "source": "backgrounds/generated_vega_cloudy_terrace.png",
+    "name_zh": "阴夜私人露台与热饮",
+    "variant": "cloudy_night_generated"
+  },
+  "small_baking_kitchen_rain": {
+    "source": "backgrounds/generated_flash_rainy_baking_kitchen.png",
+    "name_zh": "雨天小烘焙厨房与茶桌",
+    "variant": "rain_generated"
+  },
+  "research_study_dinner_evening": {
+    "source": "backgrounds/generated_tachyon_dinner_study.png",
+    "name_zh": "暖灯研究室晚餐角",
+    "variant": "evening_generated"
+  },
+  "flower_exhibition_closed_evening": {
+    "source": "backgrounds/generated_bouquet_flower_exhibition_closed.png",
+    "name_zh": "闭馆后的花展入口",
+    "variant": "evening_generated"
   }
 }

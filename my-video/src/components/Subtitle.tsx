@@ -21,6 +21,25 @@ const Subtitle: React.FC<{
 }> = ({ item, durationInFrames }) => {
   const frame = useCurrentFrame();
   const { width, height } = useVideoConfig();
+  return (
+    <SubtitleLayout
+      item={item}
+      durationInFrames={durationInFrames}
+      frame={frame}
+      width={width}
+      height={height}
+    />
+  );
+};
+
+// Shared by the movie and browser-based preflight: no second approximation of layout.
+export const SubtitleLayout: React.FC<{
+  item: TextElement;
+  durationInFrames: number;
+  frame: number;
+  width: number;
+  height: number;
+}> = ({ item, durationInFrames, frame, width, height }) => {
   const subtitle = normalizeSubtitleElement(item);
   const uiScale = getSubtitleUiScale(width, height);
   const lastFrame = Math.max(0, Math.ceil(durationInFrames) - 1);
@@ -79,6 +98,7 @@ const Subtitle: React.FC<{
       />
 
       <div
+        data-subtitle-role="box"
         style={{
           position: "absolute",
           left: width * storySubtitleTheme.leftRatio,
@@ -91,6 +111,7 @@ const Subtitle: React.FC<{
         <div>
           {hasSpeaker ? (
             <OutlinedText
+              role="speaker"
               fontSize={storySubtitleTheme.speakerFontSize * uiScale}
               fontWeight={storySubtitleTheme.speakerWeight}
               lineHeight={1.15}
@@ -125,6 +146,7 @@ const Subtitle: React.FC<{
         >
           {hasJa ? (
             <OutlinedText
+              role="ja"
               fontSize={storySubtitleTheme.bodyFontSize * uiScale}
               fontWeight={storySubtitleTheme.bodyWeight}
               lineHeight={storySubtitleTheme.bodyLineHeight}
@@ -137,6 +159,7 @@ const Subtitle: React.FC<{
 
           {hasZh ? (
             <OutlinedText
+              role="zh"
               color="#ffffff"
               fontSize={storySubtitleTheme.bodyFontSize * uiScale}
               fontWeight={storySubtitleTheme.bodyWeight}

@@ -1,440 +1,237 @@
 ---
 name: umamusume-video-pipeline
-description: "Use for this repository's local Uma Musume draft-to-video pipeline: turning draft/*.md into structured script JSON, generating per-line Qwen3-TTS or Fish Speech audio, building director-composited images and Remotion timeline content, applying the macOS pre-render memory gate, validating stills, and rendering MP4. Trigger when asked to create or update a story video, generate TTS, run director.py, build 1080p/4K content, validate Remotion output, or recover a failed pipeline step."
+description: "Create, review, repair, and resume this repository's local Uma Musume story videos. Use for draft-to-script adaptation, per-line Fish Speech or Qwen3-TTS, audio fingerprint checks and selective repair, RoleTone QC, Director content, subtitle preflight, key-frame review, and safe Remotion rendering."
 ---
 
 # Umamusume Video Pipeline
 
-## Overview
+## Entry Point and Scope
 
-Use this skill to run the repo's current production flow:
+Run commands from the repository root. Prefer `.venv/bin/python`; if the local environment is absent, use `uv run python` with the same arguments. Use the existing environment and assets; do not reinstall models or dependencies on every run.
+
+The maintained orchestration entry point is `scripts/video_workflow.py`. Read [the workflow guide](../../../docs/video-workflow.md) before using it, including its legacy-audio and repair limitations. Use `--help` for current flags. Do not write per-story tools for operations already provided here:
+
+| Task | Fixed entry point |
+| --- | --- |
+| Find a line by MP4 time, text, speaker, or ID; extract a listening clip | `video_workflow.py locate` |
+| Allocate a new insertion ID without renumbering old lines | `video_workflow.py new-id` |
+| Prepare, generate, compare, and apply selected voice candidates | `video_workflow.py repair create/generate/compare/apply` |
+| Audit voice inputs/output hashes without contacting TTS | `synthesize_script.py --audit` |
+| Measure subtitles in Chromium; render stills by line ID | `video_workflow.py subtitles/preview` |
+| Initialize parameters, advance stages, record completed review | `video_workflow.py init/run/approve` |
+
+Architecture remains:
 
 ```text
-draft/*.md -> draft/*_script.json -> draft/*_audio/*.wav -> my-video/public/content/<project>/ -> Remotion MP4
+draft MD -> Agent-authored script JSON -> WAV + .wav.tts.json -> audio QC
+         -> Director images/MP3/timeline -> subtitle/still review -> render_4k60.sh -> MP4
 ```
 
-Keep Remotion as a renderer. Do not move character semantics, speaker selection, background selection, or staging logic into Remotion unless the user explicitly asks to change architecture.
+The Agent handles adaptation, character voice, translation, costumes, and staging. Remotion only renders the timeline; do not move story semantics into it or redesign the JSON scene protocol. Keep current RoleTone rules. Generated drafts, configurations, candidates, receipts, reports, and media belong in ignored working directories; do not require Git to preserve them.
 
-## Current Architecture
+## Script and Asset Preparation
 
-- Agent writes `draft/*_script.json` from `draft/*.md`.
-- `scripts/synthesize_script.py` calls Qwen3-TTS or Fish Speech and writes `draft/*_audio/*.wav`.
-- `scripts/audio_qc.py` validates WAVs, optionally scores them with one shared RoleTone model, and writes `qc_report.json` plus `retry_plan.json`.
-- `scripts/director.py` incrementally composites content-addressed `images/frame-<sha256>.png`, converts changed audio to MP3, and writes `timeline.json` plus `.director-manifest.json`.
-- Remotion reads `my-video/public/content/<project>/timeline.json`, plays PNG/MP3/subtitles, and renders video.
-- `scripts/render_4k60.sh` owns final 4K60 memory/TTS/disk gates, one-time minimal bundle, chunk rendering, resume, assembly, and media verification.
+Confirm the exact requested draft exists and read it before adapting. Preserve dialogue and important exchanges when requested; there is no fixed 35–50-line target. Keep narration restrained according to the user's request. Preserve supplied names, forms of address, and self-references; Chinese subtitles should not accidentally retain Japanese nicknames or TTS tags.
 
-Generated/local assets are ignored by git: `draft/`, `characters/`, `backgrounds/`, `my-video/public/content/`, `my-video/out/`.
+Check local `characters/`, `backgrounds/`, and `scripts/background_catalog.json`. Use the user's curated reference audio, not an arbitrary alternative. The synthesizer chooses `reference.mp3` before `reference.wav`; flag ambiguity if the intended new reference is not the file that will be selected. Each voiced speaker needs a matching asset directory and nonempty `reference_jp.txt`. Use exact directory case: current trainer/narration assets commonly use `Trainer` and `Voice-over`, not an assumed lowercase alias. List backgrounds with:
 
-## Script JSON Contract
+```bash
+.venv/bin/python scripts/director.py list-backgrounds
+```
 
-Write a top-level object with `projectId`, `title`, and `lines`.
+Use uniforms and original racing outfits where the scene supports them, keeping clothing and staging consistent within a continuous scene. Keep background and participant slots stable through multi-person exchanges; changing the speaking partner is not itself a scene change. Prepare suitable missing background assets when in scope, but do not substitute an unrelated location merely to get a render.
 
-Each line should use these fields:
+### Existing JSON Contract
 
-- `id`: stable logical line id. Audio commonly keeps it as a basename; Director images are content-addressed and may be shared by many lines.
+Prefer a top-level object with `projectId`, `title`, and `lines`; existing `scenes[].lines` scripts remain supported. Each line uses:
+
+- `id`: unique, stable logical ID. Never renumber existing lines after an insertion. Keep each line's audio path unique.
 - `type`: `dialogue` or `narration`.
-- `speakerId`: character id matching `characters/<speaker_id>/`; use `trainer` for trainer.
-- `background`: alias in `scripts/background_catalog.json`.
-- `characters`: optional list of on-screen sprites; use `slot` values `left`, `right`, `center_left`, `center_right`, `center`.
-- `characters[].spriteScale`: optional base scale only for special framing. Do not use it to mark the speaking character.
-- `audio`: only for voiced character lines, usually `draft/<project>_audio/<line_id>.wav`.
-- `spokenText`: text sent to TTS. For Fish Speech, put inline emotion/style tags here when a line needs per-line control, for example `[excited][pitch up]ブーケちゃん、そこは負けないんだ`.
-- `subtitleJa` and `subtitleZh`: two-line bilingual subtitles.
-- `showSpeaker: false`: for trainer or other non-visual speakers.
+- `speakerId`: the real character directory ID, including case.
+- `background`: catalog alias or supported local path.
+- `characters`: visible sprites, with stable `slot` values `left`, `right`, `center_left`, `center_right`, or `center`; `spriteScale` is only for base framing.
+- `audio`: output WAV path for any voiced line, including trainer/narration if appropriate.
+- `spokenText`: actual Japanese TTS text, including intentional Fish style tags.
+- `subtitleJa`, `subtitleZh`: clean bilingual display text; explicit line breaks are allowed.
+- `showSpeaker: false`: when appropriate for trainer or other non-visual speakers.
 
-For Fish Speech scripts, prefer inline tags at the start of `spokenText` and keep subtitles clean:
-
-```json
-{
-  "spokenText": "[soft tone]午後の庭園で、トレーナーは久しぶりに肩の力を抜いていた",
-  "subtitleJa": "午後の庭園で、トレーナーは久しぶりに肩の力を抜いていた",
-  "subtitleZh": "午后的庭园里，训练员久违地放松了紧绷的肩膀"
-}
-```
-
-Do not put `<|speaker:0|>` into normal script JSON; the Fish Speech client adds it before sending requests. Existing inline Fish style tags in `spokenText` are preserved, and global `--fish-style` is only inserted when no leading style tag exists.
-
-Fish Speech tags are not a closed enum, especially with S2-Pro natural-language bracket tags, but a small stable set is more predictable for anime dialogue:
-
-| Use case | Recommended S2-Pro tag | Notes |
-| --- | --- | --- |
-| bright greeting / normal cheerful line | `[bright and cheerful tone]` | Good default for upbeat character dialogue. |
-| cute delighted line | `[delighted][pitch up]` | Good for Curren-like cute greetings, playful discoveries, and light affection. |
-| energetic but not shouting | `[excited]` | First choice before trying volume changes. |
-| stronger energetic line | `[excited][volume up]` | Use sparingly; can become too forceful. |
-| confident declaration | `[confident]` | Good for rivalry, promises, and proud remarks. |
-| teasing / playful | `[playful tone]` | Good for light teasing; avoid on serious lines. |
-| gentle / caring | `[soft tone]` | Good for tea, comfort, reflection, and narration. |
-| quick / hurried | `[in a hurry tone]` | Good for flustered or fast-paced lines. |
-| small surprise | `[surprised][pitch up]` | Use on short reactions; can be unstable on long lines. |
-
-Use at most 1-2 tags for most lines. Prefer tone/pitch tags over aggressive tags such as `[shouting]` or `[screaming]`, unless the story really needs it. If a tag makes the voice drift or sound overacted, remove the second tag first, then lower sampling to about `--temperature 0.85 --top-p 0.9`.
-
-Trainer and narration can be voiced if they have `characters/<speaker_id>/reference.mp3` or `reference.wav`.
-
-The director automatically applies active-speaker styling per line:
-
-- `line.speakerId == characters[].speakerId`: active character, slightly larger and full brightness.
-- Other visible characters: slightly smaller and dimmed.
-- Narration/voice-over lines: neutral framing; visible characters are not emphasized.
-
-Keep JSON focused on who is present and where they stand. Avoid hand-writing per-line active-speaker scale changes in the script.
-
-For EndDay conventions:
-
-- Agnes Tachyon calls trainer `トレーナー君` or `モルモット君`.
-- Mihono Bourbon uses `Master`.
-- Rice Shower uses `お兄さま`.
-
-## Workflow
-
-### 1. Inspect Inputs
-
-Before generating content, check:
+Director automatically enlarges/brightens the active character and dims other visible characters. Do not encode per-line active-speaker zoom by changing base sprite scale. Narration is neutral framing.
 
 ```bash
-rg --files draft characters backgrounds scripts my-video/src | sort
+.venv/bin/python scripts/video_workflow.py new-id --prefix story
 ```
 
-Confirm required character assets exist:
+Use the returned ID only for the inserted line. The tools reject duplicates but do not repair old builders that regenerate sequential IDs; preserve IDs when editing those builders too.
 
-```text
-characters/<speaker_id>/reference.mp3
-characters/<speaker_id>/reference_jp.txt
-characters/<speaker_id>/JSF_*.png or ZF_*.png
-```
+### Fish Speech Text
 
-List known backgrounds when needed:
+Keep emotion tags in `spokenText`, not subtitles. Do not manually add `<|speaker:0|>`; the client adds it. Prefer one or two tone tags:
+
+| Intent | Example S2-Pro tag |
+| --- | --- |
+| Bright / cheerful | `[bright and cheerful tone]` |
+| Cute delight | `[delighted][pitch up]` |
+| Excited, without forced shouting | `[excited]` |
+| Confident / teasing | `[confident]` / `[playful tone]` |
+| Gentle | `[soft tone]` |
+| Hurried / surprised | `[in a hurry tone]` / `[surprised][pitch up]` |
+
+Avoid excessive volume tags. If delivery drifts, first remove extra tags or lower sampling relative to that attempt. Global `--fish-style` is a fallback when text lacks a leading tag; per-line `fishStyle`, `fishStyleTag`, and `fishStyleSyntax` remain supported. S2-Pro uses bracket syntax (`s2`); S1-mini may require `s1`. Do not assume all backends accept Fish-specific flags.
+
+## New 4K60 Production
+
+### 1. Establish One Production Configuration
+
+Select the backend explicitly; never infer it from a port. Fish Speech is the current default choice unless the user selects Qwen3-TTS. Keep the selected backend, URL, model identity, and generation parameters consistent through the run and rendering shutdown gate.
+
+`--model-id` is an operator-declared checkpoint/version label, not automatic proof of the server's weights. Base it on the supplied launch configuration or known local setup. Keep it stable across resumes; update it when weights, server defaults, or relevant server implementation change. Do not invent a verified version when the model is unknown.
+
+Check the selected service before sending generation requests, not merely to locate lines, audit files, preview, or resume an already-audio-complete render:
 
 ```bash
-uv run python scripts/director.py list-backgrounds
+.venv/bin/python -m my_tts.cli fish health --base-url http://127.0.0.1:8002 --timeout 10
 ```
 
-### 2. Create or Update Script JSON
+For Qwen3-TTS use `qwen health` and the actual selected URL instead. If unavailable or timing out, ask the user to start/restart that backend; do not switch voices or shut down unrelated services.
 
-Use Agent judgment to adapt the draft into 35-50 short lines for a final video unless the user requests a different length.
-
-Validate JSON and basic fields:
+Example configuration after creating `draft/endday_final_script.json` with project `EndDay_Final_4k60`:
 
 ```bash
-uv run python - <<'PY'
-import json
-from pathlib import Path
-p = Path("draft/endday_final_script.json")
-d = json.load(p.open(encoding="utf-8"))
-lines = d.get("lines", [])
-required = ["id", "type", "background", "spokenText", "subtitleJa", "subtitleZh"]
-missing = [(i, line.get("id"), key) for i, line in enumerate(lines, 1) for key in required if not line.get(key)]
-audio_missing_speaker = [(i, line.get("id")) for i, line in enumerate(lines, 1) if line.get("audio") and not line.get("speakerId")]
-print("lines", len(lines))
-print("voiced", sum(1 for line in lines if line.get("audio")))
-print("missing", missing)
-print("audio_missing_speaker", audio_missing_speaker)
-print("ids_unique", len({line.get("id") for line in lines}) == len(lines))
-PY
+.venv/bin/python scripts/video_workflow.py init \
+  --script draft/endday_final_script.json --output draft/endday.workflow.json \
+  --tts-engine fishspeech --tts-url http://127.0.0.1:8002 --model-id s2-pro-local-v1
 ```
 
-### 3. Check TTS Service
+These names and the model label are examples, not targets to reuse for a different story. `init` refuses to overwrite an existing configuration; inspect and reuse/edit it for a resume. Its default `tts.args` are timeout 900, batch size 4, temperature 0.7, top-p 0.8, max-new-tokens 512. Fish S2-Pro usually benefits from batch size 2–4. Qwen supports its own language/sampling/subtalker flags. Adjust the configuration before generating; avoid changing global settings just to fix one line.
 
-Do not hard-code or infer the TTS backend from its port. Select it explicitly for each pipeline run and keep the same `TTS_ENGINE`/`TTS_URL` through synthesis and the pre-render shutdown gate. The user's current preferred backend is Fish Speech, so use this for the normal path unless the user explicitly requests Qwen3-TTS or only Qwen3-TTS is available:
+### 2. Generate Audio and Review QC
 
 ```bash
-export TTS_ENGINE=fishspeech
-export TTS_URL=http://127.0.0.1:8002
-uv run my-tts fish health --base-url "$TTS_URL" --timeout 10
+.venv/bin/python scripts/video_workflow.py run --config draft/endday.workflow.json --until audio
 ```
 
-Fish Speech normally runs on `http://127.0.0.1:8002`, but it may use `8001`; keep `TTS_ENGINE=fishspeech` and set `TTS_URL` to the actual loopback URL.
+This generates missing audio using fingerprint-aware reuse and runs existing objective checks plus offline RoleTone. Reports are under `draft/endday.workflow.work/audio_qc/`, not the standalone `audio_qc.py` default directory. Read both `qc_report.json` and `retry_plan.json`.
 
-For an explicitly selected Qwen3-TTS run:
+`run` stopping at a review gate is expected, not a failure or completion of the requested MP4. Review scores, objective errors, durations, reference selection, and the flagged lines; listen when available/needed. Short clips can produce unreliable low RoleTone scores: do not regenerate solely on a low short-clip score, or claim to have listened when only inspecting measurements. Use the selective repair path below for genuinely bad audio. Start with one or two targeted attempts; if still unresolved, report the specific lines and seek direction instead of retrying indefinitely or lowering scoring rules.
 
 ```bash
-export TTS_ENGINE=qwen3tts
-export TTS_URL=http://127.0.0.1:8001
-uv run my-tts qwen health --base-url "$TTS_URL" --timeout 10
+.venv/bin/python scripts/video_workflow.py approve --config draft/endday.workflow.json --stage audio
 ```
 
-If health times out, tell the user to restart the active TTS server before sending generation requests.
+`approve` records a completed review; it does not perform one. Within an authorized end-to-end production task, the Agent can complete the relevant checks and record approval, then continue without asking for an extra user confirmation at every stage. If the user explicitly wants to listen first, honor that pause. Use `--accept-warnings` only after assessing the actual warnings and documenting why they are acceptable. Objective errors or failed RoleTone scoring must be resolved; the tool will not approve them.
 
-### 4. Generate TTS
-
-Always pass `--tts-engine` explicitly and pass the matching URL from `TTS_URL`; `scripts/synthesize_script.py` requires an explicit backend so an omitted flag cannot silently select the wrong service. For the current normal workflow, select Fish Speech with `--tts-engine fishspeech`. It supports single-line `voice_clone` and multi-line `voice_clone_batch_file`. For Fish Speech S2 Pro, keep batches shorter because memory use is higher; use `--batch-size 2` to `--batch-size 4` for safer runs.
-
-Fish Speech command (current preferred path):
+### 3. Build, Check Subtitles, and Inspect Key Frames
 
 ```bash
-uv run python scripts/synthesize_script.py \
-  --script draft/endday_final_script.json \
-  --tts-engine fishspeech \
-  --fish-tts-url "$TTS_URL" \
-  --timeout 900 \
-  --batch-size 4 \
-  --temperature 0.7 \
-  --top-p 0.8 \
-  --max-new-tokens 512
+.venv/bin/python scripts/video_workflow.py run --config draft/endday.workflow.json --until preview
 ```
 
-The Qwen3-TTS path remains available when it is explicitly selected. Qwen3-TTS uses `voice_clone_batch_file` grouped by `speakerId`.
+This runs Director at 3840×2160 with a 100 ms sentence gap, measures the shared subtitle component in Chromium, and renders serial previews of first/middle/last lines, layout changes, and subtitle warnings. Inspect `draft/endday.workflow.work/subtitles.json` and `stills/`. Warnings include overflow, short final rows, excess height/rows, Chinese text containing kana, and possible TTS tags. They are review hints, not automatic translation/line-break edits.
 
-Qwen3-TTS command:
+Check backgrounds, costume/slot continuity, character cropping, subtitle names and line breaks. If only subtitles need edits, update the main script and rerun this stage; this does not invalidate TTS. Director incrementally reuses images/audio, and the workflow invalidates changed visual approvals. Do not hand-edit cached timeline or review hashes to bypass a check.
 
 ```bash
-uv run python scripts/synthesize_script.py \
-  --script draft/endday_final_script.json \
-  --tts-engine qwen3tts \
-  --qwen3tts-url "$TTS_URL" \
-  --timeout 900 \
-  --batch-size 6 \
-  --non-streaming-mode true \
-  --do-sample true \
-  --temperature 0.6 \
-  --top-p 0.85 \
-  --top-k 20 \
-  --subtalker-do-sample true \
-  --subtalker-temperature 0.6 \
-  --subtalker-top-p 0.85 \
-  --subtalker-top-k 20
+.venv/bin/python scripts/video_workflow.py approve --config draft/endday.workflow.json --stage visual
 ```
 
-Fish Speech target text is normalized before the request:
+Use `--accept-warnings` only after inspecting flagged frames that are intentionally retained. Do not overwrite the workflow-owned report or preview directory with unrelated manual checks; those files are hash-bound to approval. Put additional ad hoc previews in a separate output directory.
 
-- `<|speaker:0|>` is automatically added unless `--no-fish-speaker-tag` is passed.
-- Preferred per-line control is to put Fish Speech tags directly in `spokenText`, for example `[excited][pitch up]...` or `[soft tone]...`.
-- `--fish-style <preset>` inserts a batch-default inline emotion/style tag only when `spokenText` does not already start with a style tag. For S2-Pro, the default syntax is `s2`, so `--fish-style energetic` becomes `[excited][volume up]`. For S1-mini, pass `--fish-style-syntax s1` to use tags like `(excited)`.
-- Use `--fish-style-tag '[excited][pitch up]'` to pass an exact inline tag.
-- Per-line script fields also work as a structured alternative: `fishStyle`, `fishEmotion`, `fishStyleTag`, and `fishStyleSyntax`.
-
-Good first-pass Fish Speech S2-Pro settings for livelier anime dialogue:
+### 4. Render and Verify
 
 ```bash
-uv run python scripts/synthesize_script.py \
-  --script draft/endday_final_script.json \
-  --tts-engine fishspeech \
-  --fish-tts-url "$TTS_URL" \
-  --timeout 900 \
-  --batch-size 4 \
-  --fish-style energetic \
-  --fish-style-syntax s2 \
-  --temperature 0.9 \
-  --top-p 0.9 \
-  --max-new-tokens 512
+.venv/bin/python scripts/video_workflow.py run --config draft/endday.workflow.json --until render
 ```
 
-If Fish Speech is running on `8001`, update the recorded URL before health checks and synthesis:
+With both reviews current, this delegates to `scripts/render_4k60.sh`. Do not report success merely because `run` exited with code 0: it may have stopped at a gate. Require successful final render/media verification and identify the actual MP4 delivered.
+
+The wrapper owns the repository render lock, minimal one-time bundle, static-frame reuse, one-time timeline audio assembly, signed chunk resume, final mux/decode checks, and safety gates. Do not create another final-render/assembly implementation.
+
+## Locating and Selectively Repairing Audio
+
+Read the repair examples and limitations in [the workflow guide](../../../docs/video-workflow.md) for this mode. Locate before selecting targets:
 
 ```bash
-export TTS_URL=http://127.0.0.1:8001
+.venv/bin/python scripts/video_workflow.py locate \
+  --script draft/endday_final_script.json --at 01:23.5 \
+  --qc-report draft/endday.workflow.work/audio_qc/qc_report.json
 ```
 
-Regenerate one character:
+Timestamps include the default one-second title intro. An old MP4 needs its matching timeline (`--timeline` if necessary). `--text`, `--line-id`, and `--speaker-id` are alternatives; a single match can be exported with `--video ... --clip ...`. Inspect stale-report indicators rather than treating an old pass score as current.
 
 ```bash
-uv run python scripts/synthesize_script.py \
-  --script draft/endday_final_script.json \
-  --tts-engine fishspeech \
-  --fish-tts-url "$TTS_URL" \
-  --speaker-id kitasan_black \
-  --overwrite \
-  --timeout 900 \
-  --batch-size 4 \
-  --temperature 0.7 \
-  --top-p 0.8 \
-  --max-new-tokens 512
+.venv/bin/python scripts/video_workflow.py repair create \
+  --script draft/endday_final_script.json --config draft/endday.workflow.json \
+  --line-id kb001 --work-dir draft/endday_retry_01
+.venv/bin/python scripts/video_workflow.py repair generate --work-dir draft/endday_retry_01 -- \
+  --tts-engine fishspeech --fish-tts-url http://127.0.0.1:8002 --model-id s2-pro-local-v1 \
+  --timeout 900 --batch-size 4 --temperature 0.7 --top-p 0.8 --max-new-tokens 512
+.venv/bin/python scripts/video_workflow.py repair compare --work-dir draft/endday_retry_01
 ```
 
-Regenerate one line:
+Use `--speaker-id` instead of `--line-id` for a character-wide voice replacement; update the intended reference before creating the repair. Add `--patch draft/fixes.json` to `create` for an ID-to-edits object containing changed `spokenText`, supported style fields, or matching subtitles. Keep original script/WAVs unchanged during candidate preparation and comparison. Review `draft/endday_retry_01/candidates/comparison_report.json`, then:
 
 ```bash
-uv run python scripts/synthesize_script.py \
-  --script draft/endday_final_script.json \
-  --tts-engine fishspeech \
-  --fish-tts-url "$TTS_URL" \
-  --line-id kb001 \
-  --overwrite \
-  --timeout 900 \
-  --no-batch \
-  --temperature 0.7 \
-  --top-p 0.8 \
-  --max-new-tokens 256
+.venv/bin/python scripts/video_workflow.py repair apply --work-dir draft/endday_retry_01
 ```
 
-Backend-specific notes:
+Only approved replacements update the original WAVs and corresponding script edits, with backups and receipts preserved. The original production request and actual retry settings are both recorded for accepted candidates. Pass the production `--config` especially for legacy audio without receipts. Confirm the report's applied count; a high-scoring original may cause a new candidate to be kept rather than applied. Do not silently override this policy or pretend a requested content correction was applied when it was not.
 
-- Qwen3-TTS supports `--language`, `--non-streaming-mode`, `--do-sample`, `--top-k`, and `--subtalker-*`.
-- Fish Speech supports `--temperature`, `--top-p`, `--max-new-tokens`, `--chunk-length`, `--seed`, `--use-memory-cache`, `--fish-format`, and Fish-side text style flags like `--fish-style`.
-- Do not pass Qwen-only tuning flags expecting Fish Speech to use them.
-- Fish Speech S2 Pro can be slower and memory-heavy; prefer short lines, smaller batches, and explicit `--max-new-tokens`.
-- If a short line sounds unstable, use the same repair approach as Qwen: regenerate, rephrase, or generate with a context lead-in and cut the target sentence.
+Use a new repair directory for another attempt or when bound inputs change. If the production configuration/backend/model changes, restart the repair with that configuration rather than mixing unrecorded defaults. Rerun the production workflow after application so audio QC, duration-dependent timing, and visuals are current. Restart TTS first if an earlier final render stopped it.
 
-Verify every `audio` path exists before running director:
+## Fingerprints and Existing Productions
+
+Each new WAV receives a `.wav.tts.json` receipt. File existence alone is not enough to reuse audio. Audit with the same backend/model and complete production arguments (including request mode and batch size):
 
 ```bash
-uv run python - <<'PYCODE'
-import json
-from pathlib import Path
-d = json.load(open("draft/endday_final_script.json", encoding="utf-8"))
-missing = [(line["id"], line["audio"]) for line in d["lines"] if line.get("audio") and not Path(line["audio"]).exists()]
-print("missing", missing)
-PYCODE
+.venv/bin/python scripts/synthesize_script.py \
+  --script draft/endday_final_script.json --tts-engine fishspeech \
+  --fish-tts-url http://127.0.0.1:8002 --model-id s2-pro-local-v1 \
+  --timeout 900 --batch-size 4 --temperature 0.7 --top-p 0.8 --max-new-tokens 512 \
+  --audit --audit-output draft/endday_audio_audit.json
 ```
 
-### 5. Score TTS With RoleTone
+Check the report; `--audit` is read-only for audio and does not fail its exit code just because stale entries exist.
 
-Run the tracked QC stage after synthesis and before any TTS shutdown. RoleTone is explicit and
-offline by default; the tool groups lines by speaker, resolves each local reference, and loads one
-WavLM model for the whole run:
+- `fresh` / `accepted`: reusable for the current request. Accepted retries retain their actual generation provenance.
+- `missing`: synthesize the missing line normally.
+- `unverified`: old audio or incomplete generation identity. Do not fake a verified receipt. When the user has asked to keep existing audio, explicitly add `--reuse-unverified` to the configuration's `tts.args`, explain this limitation, and retain the files. Otherwise establish that decision before continuing; do not regenerate the entire legacy project merely to create receipts.
+- `stale` / `modified`: inputs or WAV bytes changed. Investigate/selectively repair. `--reuse-unverified` cannot bypass these states; do not delete receipts or use whole-project `--overwrite` to suppress the error.
+
+Changing only `subtitleJa`, `subtitleZh`, or other display fields does not invalidate voice generation. Changing `spokenText`, the selected reference audio/text, model identity, or synthesis settings does. Preserve unrelated WAVs when repairing a subset. Direct `--overwrite` is a deliberate replacement, not the normal recovery path; prefer candidates and reviewed application.
+
+## Targeted Visual Work and Render Recovery
+
+For subtitle/asset-only work, use the existing script and low-level Director plus the fixed review tools; do not force a legacy audio migration or new TTS run just to change captions:
 
 ```bash
-uv sync --extra all
+.venv/bin/python scripts/director.py build \
+  --script draft/endday_final_script.json --project EndDay_Final_4k60 \
+  --width 3840 --height 2160 --line-gap-ms 100
+.venv/bin/python scripts/video_workflow.py subtitles \
+  --script draft/endday_final_script.json --project EndDay_Final_4k60 \
+  --output draft/endday_subtitles.json
+.venv/bin/python scripts/video_workflow.py preview \
+  --script draft/endday_final_script.json --project EndDay_Final_4k60 \
+  --line-id kb001 --output draft/endday_extra_stills
 ```
 
-This one-time optional-extra install is required before using `--roletone`. Objective WAV checks
-work without it.
+The preview tool computes 60fps/intro-adjusted frames and bundles only the selected project. Render stills serially. A global Remotion subtitle style change needs new preflight/stills/render, but not TTS or Director unless script/baked content also changed. Director owns `.director-manifest.json`; do not force `--overwrite` for ordinary incremental updates.
+
+After required review, or to resume an interrupted render with already-validated content:
 
 ```bash
-uv run python scripts/audio_qc.py check \
-  --script draft/endday_final_script.json \
-  --roletone
+scripts/render_4k60.sh --project EndDay_Final_4k60 \
+  --tts-engine fishspeech --tts-url http://127.0.0.1:8002
 ```
 
-Read both generated files before continuing:
+Preserve the recorded backend/URL and media parameters. No TTS restart is needed just to resume matching render chunks; an already-refused connection is handled by the wrapper. Workflow configuration currently targets 4K60/100 ms gaps; for explicitly different dimensions/gaps use the appropriate existing lower-level tools, not a fictitious workflow flag. For 1080p Director use `--width 1920 --height 1080`; final 4K60 always uses the unified wrapper.
 
-- `draft/endday_final_audio_qc/qc_report.json`
-- `draft/endday_final_audio_qc/retry_plan.json`
+### Non-negotiable Render Safety
 
-Treat low scores as a review queue, not an automatic failure. WavLM can false-negative on very short lines, noisy starts, breathy attacks, or lines with unusual emotion. For visibly low and audibly bad lines, try in this order:
+- Do not shut down TTS while synthesis, QC, or retry work remains. Never infer the backend from a port.
+- The final wrapper checks the selected loopback backend, requests graceful shutdown, verifies `server_stopped: true` and that its listener is gone. Only connection-refused means already stopped. A timeout, old shutdown `404`, missing confirmation, or live listener is a real blocker; ask for the selected server to be restarted/closed, never use broad `pkill`.
+- Require valid `memory_pressure -Q` before/after shutdown and at least 40% free pressure for one worker, plus 10 percentage points per extra active worker; require 20 GiB scratch per outer job on both temp/output volumes. Do not bypass these gates.
+- Default to one outer job and one inner render worker. If the user asks for parallel chunks and gates pass, start with two outer jobs using the existing renderer options; do not launch parallel 4K still/render processes ad hoc.
+- Keep Remotion's 30fps preview fallback. Final and fixed-tool stills explicitly use `renderFps: 60`; composition IDs replace unsupported project characters such as underscores with hyphens.
 
-- Regenerate with the same text and low-temperature sampling.
-- Shorten or rephrase the spoken text while keeping subtitles unchanged if needed.
-- Use context generation plus cut: generate a longer line that leads into the target sentence, then cut out only the target audio.
-
-Put retry WAVs under a candidate directory and compare without mutation first:
-
-```bash
-uv run python scripts/audio_qc.py compare \
-  --script draft/endday_final_script.json \
-  --candidates-dir draft/endday_final_audio_retry \
-  --roletone
-```
-
-Only after reviewing `comparison_report.json`, repeat the same command with `--apply`. The apply
-phase verifies the reviewed script, settings, current-WAV hash, and candidate-WAV hash; stale bytes
-are refused. It keeps content-addressed backups of every replaced version and replaces only when the
-candidate strictly passes RoleTone and objective quality does not regress. If QC or repair changes
-audio, rerun Director before rendering.
-
-### 6. Build Director Content
-
-Build 4K:
-
-```bash
-uv run python scripts/director.py build \
-  --script draft/endday_final_script.json \
-  --project EndDay_Final_4k60 \
-  --width 3840 \
-  --height 2160
-```
-
-Build 1080p:
-
-```bash
-uv run python scripts/director.py build \
-  --script draft/endday_final_script.json \
-  --project EndDay_Final_1080p \
-  --width 1920 \
-  --height 1080
-```
-
-Director owns `.director-manifest.json`. It reuses `frame-<sha256>.png` for identical visual
-inputs, skips unchanged images/audio, rewrites timing after changed audio, and prunes unreferenced
-generated PNG/MP3 files only after a successful build. Use `--overwrite` only to force a rebuild;
-within-run visual deduplication still applies.
-
-Verify dimensions, logical line count, and the smaller set of unique image references:
-
-```bash
-uv run python - <<'PY'
-import json
-d = json.load(open("my-video/public/content/EndDay_Final_4k60/timeline.json", encoding="utf-8"))
-print(d["width"], d["height"], len(d["elements"]), len(d["audio"]), len(d["text"]))
-print("unique_images", len({item["imageUrl"] for item in d["elements"]}))
-print(round(d["elements"][-1]["endMs"] / 1000, 2))
-PY
-```
-
-### 7. Pre-render Memory Safety (macOS)
-
-Do not shut down TTS while synthesis, QC, or retry work remains. Final 4K60 rendering must go
-through `scripts/render_4k60.sh`; it implements the authoritative gate:
-
-- Require the exact backend and loopback URL used by this run; never infer a backend from a port.
-- Health-check only that backend, request graceful shutdown, require `server_stopped: true`, and
-  confirm its TCP listener is gone. Only connection-refused means it was already stopped.
-- Measure `memory_pressure -Q` before and after shutdown. Missing/invalid output blocks rendering.
-- Require at least 40% post-shutdown free pressure for one worker. Each extra active Remotion
-  worker adds 10 percentage points of required headroom.
-- Require at least 20 GiB of free scratch per outer chunk job on both the temp and output volumes.
-- Never use `pkill` or process-name matching as a fallback.
-
-If shutdown returns an error, times out, lacks exit confirmation, or the listener remains, stop.
-Restart an old TTS server with code that supports the admin shutdown endpoint before retrying.
-
-### 8. Validate and Render Remotion
-
-Composition IDs cannot contain `_`. A content directory named `EndDay_Final_4k60` is rendered with composition id `EndDay-Final-4k60`.
-
-Still validation:
-
-```bash
-cd my-video
-pnpm exec remotion still EndDay-Final-4k60 \
-  --output /tmp/EndDay_Final_4k60-still.png \
-  --frame=320 \
-  --scale=0.25 \
-  --concurrency=1
-```
-
-Render stills one at a time. Never launch multiple 4K Remotion still/render commands through parallel tool calls or subagents.
-
-Final 4K60 render:
-
-```bash
-scripts/render_4k60.sh \
-  --project EndDay_Final_4k60 \
-  --tts-engine fishspeech \
-  --tts-url http://127.0.0.1:8002
-```
-
-The renderer defaults to `--jobs 1 --render-concurrency 1`. When the user explicitly wants
-parallel chunks, use `--jobs 2` first. It may use up to four total workers only when the increasing
-memory and scratch gates pass. Keep inner concurrency at one unless there is a measured reason to
-trade outer jobs for inner workers.
-
-The renderer acquires one repository-wide lock, creates a minimal public root containing only the
-target project, bundles Remotion exactly once, reuses that bundle for every chunk, uses bounded
-`--disallow-parallel-encoding`, and cleans the temporary bundle. It resumes only chunks whose media
-specification and SHA-256 render signature match, then rebuilds audio with a documented sub-
-millisecond codec-timestamp tolerance, fully decodes, and validates the final MP4. Do not use old
-standalone render/assembly implementations; any local project wrapper must contain parameters only
-and delegate to `scripts/render_4k60.sh`.
-
-`my-video/src/lib/constants.ts` keeps a 30fps fallback for ordinary previews. The unified renderer
-passes `renderFps: 60`; `Root.tsx` resolves the final composition metadata to 60fps. Do not change
-the fallback constant merely to produce a 4K60 final.
-
-## Recovery Rules
-
-- TTS timeout: restart the selected backend, rerun synthesis; existing audio is skipped unless `--overwrite` is used.
-- TTS shutdown is only a phase transition after audio QC. If later repair is required, restart the selected backend, regenerate only flagged lines, rerun `audio_qc.py`, then rerun Director and the unified renderer.
-- Qwen3-TTS/Fish Speech shutdown `404`: the running server predates its admin endpoint. Do not start a memory-heavy render; have the user restart the updated server or close it manually.
-- Shutdown accepted but exit confirmation times out: do not render and do not use a broad process kill. Report which backend did not stop cleanly.
-- Character reference changed: rerun synthesis with `--speaker-id <id> --overwrite`, rerun QC, then rerun Director.
-- Background, sprite, placement, subtitle text changed: rerun Director without `--overwrite`; its manifest rebuilds only affected outputs. No TTS is needed unless `spokenText` changed.
-- Remotion subtitle/style code changed: rerun still/render; no TTS or director needed unless baked images must change.
-- Interrupted 4K60 render: rerun `scripts/render_4k60.sh` with the same media parameters. Scheduling such as `--jobs` may change; only matching media/signature chunks are reused.
-
-## Future Extensions
-
-- Scene prompt fallback: if a requested background alias is missing, add a scene prompt field or TODO entry rather than blocking the whole script. Keep generated prompts in the script or a sidecar plan until the user adds assets.
-- Richer staging: speaker zoom, inactive-character dimming, enter/exit, pan/zoom, BGM/SFX, and subtitle themes should initially be implemented in the director layer or as timeline styling metadata. Do not make Remotion infer story semantics.
+For recovery, rerun the last relevant fixed stage with unchanged parameters. Do not treat review gates as errors, change thresholds to manufacture a pass, or announce a finished MP4 before final verification.
