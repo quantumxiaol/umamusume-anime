@@ -138,3 +138,48 @@
 渲染只委托 `scripts/render_4k60.sh`，保持 **3840×2160、60fps、0.1 秒句间隔**，保留其内存、磁盘、TTS 关闭和分块续渲染检查。这个工具不会自行重启 TTS。
 
 这些命令负责机械执行和安全复用；从小说写出角色口吻、译文、服装及连贯场景，仍由 Agent 创作，不交给固定模板自动压缩。
+
+## 6. 可选事件 CG：独立计划，不改剧本协议
+
+CG 由带角色/场景参考的生图工具准备并人工审阅，不由 Director 自动生成。
+在独立 JSON 中用稳定句子 ID 绑定闭区间，区间结束后自动恢复原立绘：
+
+```json
+{
+  "schemaVersion": 1,
+  "projectId": "Story_4k60",
+  "shots": [{
+    "id": "confession",
+    "startLineId": "s062",
+    "endLineId": "s066",
+    "sceneId": "park_bench",
+    "background": "park_promenade_day",
+    "image": "draft/cg/confession.png"
+  }]
+}
+```
+
+`projectId` 指原剧本项目；图片路径与背景路径一样，以仓库根目录为基准，或用绝对路径。
+每个覆盖句必须具有相同的 `sceneId` 和解析到相同文件的 `background`；嵌套剧本可从场景 `sceneId` / `id` 继承。
+未知/重复句子 ID、倒序区间、重叠 CG、跨场景或跨背景会拒绝构建。程序只能验证场景声明，插画实际是否画对地点、服装、肢体仍要目视核对。
+
+```bash
+.venv/bin/python scripts/video_workflow.py init \
+  --script draft/story_script.json --output draft/story_cg.workflow.json \
+  --project Story_CG_4k60 --cg-plan draft/story_cg_plan.json \
+  --tts-engine fishspeech --tts-url http://127.0.0.1:8002 --model-id s2-pro-local-v1
+```
+
+新配置的 `project` 可单独指定输出，保留原版视频；`cgPlan` 为可选项。继续沿用音频审阅 → 预览审阅 → 渲染流程。
+CG 不改变任何配音/字幕/时间戳，覆盖时不再叠加或缩放旧人物立绘。CG 图片与计划参与视觉审阅指纹；修改它们要重新预览，但不触发 TTS。
+正式预览会额外覆盖每个 CG 的前一句、首句、末句和后一句，检查切入/切回及字幕遮挡。
+
+只做画面工作的低层入口仍可用：
+
+```bash
+.venv/bin/python scripts/director.py build --script draft/story_script.json \
+  --project Story_CG_4k60 --cg-plan draft/story_cg_plan.json \
+  --width 3840 --height 2160 --line-gap-ms 100
+```
+
+删除 `cgPlan` / 不传 `--cg-plan` 即走原有立绘流程。既有脚本、音频指纹、Remotion 时间轴协议都不变。

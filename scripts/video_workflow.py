@@ -314,7 +314,24 @@ def visual_key(config: dict) -> str:
     paths += sorted((content / "audio").glob("*.mp3"))
     paths += [x for x in sorted((ROOT / "my-video/src").rglob("*")) if x.is_file()]
     paths += [ROOT / "my-video" / x for x in ("remotion.config.ts", "package.json", "pnpm-lock.yaml")]
+    if config.get("cgPlan"):
+        plan = ROOT / config["cgPlan"]
+        paths.append(plan)
+        paths += [ROOT / shot["image"] for shot in read(plan)["shots"]]
     return digest({str(x): sha256(x) for x in paths})
+
+
+def cg_preview_ids(config: dict) -> list[str]:
+    """Review both CG edges and the surrounding normal shots, not just one still."""
+    if not config.get("cgPlan"):
+        return []
+    ids = [line["id"] for line in lines(read(Path(config["script"])))]
+    selected = set()
+    for shot in read(ROOT / config["cgPlan"])["shots"]:
+        start, end = ids.index(shot["startLineId"]), ids.index(shot["endLineId"])
+        selected.update(ids[max(0, start - 1):start + 1])
+        selected.update(ids[end:min(len(ids), end + 2)])
+    return [line_id for line_id in ids if line_id in selected]
 
 
 def workflow(args: argparse.Namespace) -> None:
@@ -375,8 +392,11 @@ def workflow(args: argparse.Namespace) -> None:
     if args.until == "audio" or state.get("audioApproved") != current:
         print(f"Audio review gate: inspect/listen using {qc}, then approve --stage audio")
         return
-    run(python_tool("director.py", "build", "--script", script, "--project", project,
-                    "--width", "3840", "--height", "2160", "--line-gap-ms", "100", "--characters-root", characters))
+    director_args = ["build", "--script", script, "--project", project,
+                     "--width", "3840", "--height", "2160", "--line-gap-ms", "100", "--characters-root", characters]
+    if config.get("cgPlan"):
+        director_args += ["--cg-plan", ROOT / config["cgPlan"]]
+    run(python_tool("director.py", *director_args))
     key = visual_key(config)
     if state.get("visualKey") != key or not visual_reports_match(folder, state):
         subtitle_check(script, folder / "subtitles.json", project)
@@ -390,6 +410,7 @@ def workflow(args: argparse.Namespace) -> None:
                 ids.append(line["id"])
             previous_layout = layout
         ids += read(folder / "subtitles.json").get("flagged", [])
+        ids += cg_preview_ids(config)
         preview(script, folder / "stills", ids, project)
         if visual_key(config) != key:
             raise ValueError("Visual inputs changed during preview; rerun")
@@ -447,6 +468,8 @@ def build_parser() -> argparse.ArgumentParser:
     init = sub.add_parser("init", help="Create a disposable pipeline parameter file, not a new script protocol")
     init.add_argument("--script", required=True)
     init.add_argument("--output", required=True)
+    init.add_argument("--project", help="Separate output project (e.g. a CG version) without editing the script")
+    init.add_argument("--cg-plan", help="Optional event CG plan, separate from the script JSON")
     init.add_argument("--tts-engine", required=True, choices=("fishspeech", "qwen3tts"))
     init.add_argument("--tts-url", required=True)
     init.add_argument("--model-id", required=True)
@@ -500,9 +523,15 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("Config already exists")
             script = Path(args.script).resolve()
             lines(read(script))
-            write(path, {"script": str(script), "tts": {"engine": args.tts_engine, "url": args.tts_url,
+            config = {"script": str(script), "tts": {"engine": args.tts_engine, "url": args.tts_url,
                 "modelId": args.model_id, "args": ["--timeout", "900", "--batch-size", "4", "--temperature", "0.7",
-                                                  "--top-p", "0.8", "--max-new-tokens", "512"]}})
+                                                  "--top-p", "0.8", "--max-new-tokens", "512"]}}
+            if args.project:
+                project_path(read(script), args.project)
+                config["project"] = args.project
+            if args.cg_plan:
+                config["cgPlan"] = str(Path(args.cg_plan).resolve())
+            write(path, config)
         elif args.command in ("run", "approve"):
             workflow(args)
     except (ValueError, OSError, subprocess.CalledProcessError) as exc:

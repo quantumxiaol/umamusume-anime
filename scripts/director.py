@@ -87,6 +87,64 @@ class DirectorError(RuntimeError):
     pass
 
 
+@dataclass(frozen=True)
+class EventCG:
+    id: str
+    image: Path
+    scene_id: str
+
+
+def load_cg_plan(
+    path: Path, *, script: dict[str, Any], lines: list[dict[str, Any]],
+    catalog: dict[str, Any], repo_root: Path,
+) -> dict[str, EventCG]:
+    """Resolve a sidecar into inclusive, scene-bound stable-line overrides.
+
+    This validates declared scene continuity, not the semantic contents of an
+    illustration. The latter still needs visual review against the background.
+    """
+    plan = read_json(path)
+    if plan.get("schemaVersion") != 1 or not isinstance(plan.get("shots"), list):
+        raise DirectorError("CG plan requires schemaVersion=1 and a shots array")
+    if plan.get("projectId") != script.get("projectId") or not plan.get("projectId"):
+        raise DirectorError("CG plan projectId must match the source script")
+    ids = [line.get("id") for line in lines]
+    if any(not isinstance(x, str) or not x for x in ids) or len(set(ids)) != len(ids):
+        raise DirectorError("CG plans require explicit unique stable line IDs")
+    positions = {value: index for index, value in enumerate(ids)}
+    resolved: dict[str, EventCG] = {}
+    shot_ids: set[str] = set()
+    for shot in plan["shots"]:
+        fields = ("id", "startLineId", "endLineId", "sceneId", "background", "image")
+        if not isinstance(shot, dict) or any(not isinstance(shot.get(k), str) or not shot[k] for k in fields):
+            raise DirectorError(f"Each CG shot requires nonempty strings: {', '.join(fields)}")
+        if shot["id"] in shot_ids:
+            raise DirectorError(f"duplicate CG shot id: {shot['id']}")
+        shot_ids.add(shot["id"])
+        start, end = shot["startLineId"], shot["endLineId"]
+        if start not in positions or end not in positions:
+            raise DirectorError(f"CG {shot['id']}: unknown line range {start}..{end}")
+        if positions[start] > positions[end]:
+            raise DirectorError(f"CG {shot['id']}: reversed line range")
+        expected_bg = resolve_background_path(shot["background"], catalog, repo_root).resolve()
+        image = resolve_existing_path(shot["image"], repo_root=repo_root, label="CG image")
+        try:
+            with Image.open(image) as source:
+                source.verify()
+        except (OSError, ValueError) as exc:
+            raise DirectorError(f"Invalid CG image {image}: {exc}") from exc
+        cg = EventCG(shot["id"], image, shot["sceneId"])
+        for line in lines[positions[start]:positions[end] + 1]:
+            line_id = line["id"]
+            if line_id in resolved:
+                raise DirectorError(f"overlapping CG shots at line {line_id}")
+            actual_bg = resolve_background_path(line.get("background"), catalog, repo_root).resolve()
+            if line.get("sceneId") != shot["sceneId"] or actual_bg != expected_bg:
+                raise DirectorError(f"CG {shot['id']}: scene/background mismatch at {line_id}")
+            resolved[line_id] = cg
+    return resolved
+
+
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
@@ -113,6 +171,7 @@ def build_parser() -> argparse.ArgumentParser:
     build = subparsers.add_parser("build", help="Build images and timeline for my-video.")
     build.add_argument("--script", required=True, help="Structured script JSON.")
     build.add_argument("--project", help="Output project slug. Defaults to script projectId or file stem.")
+    build.add_argument("--cg-plan", help="Optional scene-bound event CG sidecar; script and audio stay unchanged.")
     build.add_argument("--content-root", default=str(DEFAULT_CONTENT_ROOT), help="Remotion content root.")
     build.add_argument("--background-catalog", default=str(DEFAULT_BACKGROUND_CATALOG), help="Background catalog JSON.")
     build.add_argument("--characters-root", default=str(DEFAULT_CHARACTERS_ROOT), help="Character assets root.")
@@ -156,6 +215,8 @@ def build_project(args: argparse.Namespace) -> None:
     if args.line_gap_ms < 0:
         raise DirectorError("--line-gap-ms must be >= 0")
     canvas_size = (args.width, args.height)
+    cg_path = Path(args.cg_plan).resolve() if getattr(args, "cg_plan", None) else None
+    cg_lines = load_cg_plan(cg_path, script=script, lines=lines, catalog=catalog, repo_root=repo_root) if cg_path else {}
 
     project_root = Path(args.content_root) / project
     image_dir = project_root / "images"
@@ -249,7 +310,13 @@ def build_project(args: argparse.Namespace) -> None:
         else:
             duration_ms = estimated_duration_ms(line)
 
-        visual_plan = resolve_visual_plan(
+        cg = cg_lines.get(line_id)
+        # A CG replaces the whole stage; never overlay or focus the old sprites.
+        visual_plan = VisualPlan(
+            background=cg.image,
+            background_sha256=file_sha256(cg.image, cache=file_hash_cache),
+            sprites=(), canvas_size=canvas_size,
+        ) if cg else resolve_visual_plan(
             line=line,
             catalog=catalog,
             characters_root=characters_root,
@@ -326,6 +393,9 @@ def build_project(args: argparse.Namespace) -> None:
             "imageUrl": image_url,
             "durationMs": duration_ms,
         }
+        if cg:
+            manifest_line["eventCg"] = {"id": cg.id, "sceneId": cg.scene_id,
+                                       "image": display_path(cg.image, repo_root=repo_root)}
         if audio_record is not None:
             manifest_line["audio"] = audio_record
         manifest_lines[line_id] = manifest_line
@@ -349,6 +419,9 @@ def build_project(args: argparse.Namespace) -> None:
             "audio": sorted(owned_audio),
         },
     }
+    if cg_path:
+        manifest["cgPlan"] = {"path": display_path(cg_path, repo_root=repo_root),
+                              "sha256": file_sha256(cg_path, cache=file_hash_cache)}
     # Publish a transitional ownership union before pruning. If the process is
     # interrupted during cleanup, the next run still knows which stale outputs
     # Director owned and can finish removing them safely.
@@ -392,6 +465,7 @@ def flatten_lines(script: dict[str, Any]) -> list[dict[str, Any]]:
         scene_defaults = {
             "background": scene.get("background"),
             "characters": scene.get("characters"),
+            "sceneId": scene.get("sceneId") or scene.get("id"),
         }
         for line in scene.get("lines", []):
             if isinstance(line, dict):

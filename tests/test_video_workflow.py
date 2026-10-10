@@ -198,6 +198,38 @@ def test_pipeline_changes_revoke_approval(pipeline):
         workflow.workflow(pipeline_args(config, "approve", stage="audio"))
 
 
+def test_cg_config_forwarding_and_boundary_previews(pipeline):
+    config_path, _, commands = pipeline
+    config = read(config_path)
+    plan = config_path.parent / "cg.json"
+    write(plan, {"shots": [{"startLineId": "a", "endLineId": "a", "image": "cg.png"}]})
+    config["cgPlan"] = str(plan)
+    write(config_path, config)
+    workflow.workflow(pipeline_args(config_path))
+    workflow.workflow(pipeline_args(config_path, "approve", stage="audio"))
+    workflow.workflow(pipeline_args(config_path))
+    command = next(c for c in commands if "director.py" in " ".join(c))
+    assert command[command.index("--cg-plan") + 1] == str(plan)
+    assert workflow.cg_preview_ids(config) == ["a", "b"]
+
+
+def test_cg_source_and_plan_are_part_of_visual_review_key(project):
+    root = project.parent
+    for name in ("remotion.config.ts", "package.json", "pnpm-lock.yaml"):
+        (root / "my-video" / name).write_text("renderer")
+    image = root / "cg.png"
+    image.write_bytes(b"first image")
+    plan = root / "cg.json"
+    write(plan, {"shots": [{"image": str(image)}]})
+    config = {"script": str(project), "cgPlan": str(plan)}
+    first = workflow.visual_key(config)
+    image.write_bytes(b"second image")
+    second = workflow.visual_key(config)
+    assert first != second
+    write(plan, {"shots": [{"image": str(image), "startLineId": "b"}]})
+    assert second != workflow.visual_key(config)
+
+
 def test_pipeline_changed_preview_cannot_be_approved(pipeline):
     config, _, _ = pipeline
     workflow.workflow(pipeline_args(config))
