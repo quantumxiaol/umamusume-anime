@@ -3711,6 +3711,7 @@ dependencies = [
     { name = "httpx" },
     { name = "pillow" },
     { name = "pytest" },
+    { name = "python-dotenv" },
     { name = "umamusume-web-crawler" },
 ]
 
@@ -3724,6 +3725,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "pillow", specifier = ">=12.2.0" },
     { name = "pytest", specifier = ">=9.0.3" },
+    { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "roletone", marker = "extra == 'all'", directory = "third_party/RoleTone" },
     { name = "umamusume-web-crawler", git = "https://github.com/quantumxiaol/umamusume-web-crawler.git" },
 ]

@@ -21,6 +21,8 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from my_tts.config import get_tts_settings
+
 QWEN_API_PREFIX = "/qwen3tts"
 FISH_API_PREFIX = "/fishspeech"
 ADMIN_SHUTDOWN_VALUE = "shutdown"
@@ -242,12 +244,17 @@ class Qwen3TTSClient:
         base_url: str,
         timeout: float,
         client: httpx.Client | None = None,
+        *,
+        api_key: str | None = None,
     ) -> None:
         normalized = base_url.rstrip("/")
         if normalized.endswith(QWEN_API_PREFIX):
             normalized = normalized[: -len(QWEN_API_PREFIX)]
         self._base_url = normalized
-        self._client = client or httpx.Client(base_url=normalized, timeout=timeout)
+        self._client = client or httpx.Client(base_url=normalized, timeout=timeout, trust_env=False)
+        key = get_tts_settings().api_key("qwen3tts") if api_key is None else api_key
+        if key:
+            self._client.headers["Authorization"] = f"Bearer {key}"
 
     def close(self) -> None:
         self._client.close()
@@ -257,8 +264,12 @@ class Qwen3TTSClient:
         return response.json()
 
     def download(self, url: str, destination: Path) -> Path:
+        target = self._client.base_url.join(url)
+        origin = httpx.URL(self._base_url)
+        if (target.scheme, target.host, target.port) != (origin.scheme, origin.host, origin.port):
+            raise CliError("Refusing audio download from a different service origin")
         destination.parent.mkdir(parents=True, exist_ok=True)
-        with self._client.stream("GET", url) as response:
+        with self._client.stream("GET", target) as response:
             response.raise_for_status()
             with destination.open("wb") as handle:
                 for chunk in response.iter_bytes():
@@ -308,6 +319,7 @@ class Qwen3TTSClient:
         x_vector_only_mode: bool = False,
         **gen_kwargs: Any,
     ) -> dict[str, Any]:
+        get_tts_settings().require_enabled()
         with ExitStack() as stack:
             data: dict[str, str] = {
                 "language": language,
@@ -364,6 +376,7 @@ class Qwen3TTSClient:
         if text_file is None and not texts:
             raise ValueError("Either text_file or texts must be provided.")
 
+        get_tts_settings().require_enabled()
         with ExitStack() as stack:
             data: dict[str, Any] = {
                 "language": language,
@@ -412,6 +425,7 @@ class Qwen3TTSClient:
         output_name: str | None = None,
         **gen_kwargs: Any,
     ) -> dict[str, Any]:
+        get_tts_settings().require_enabled()
         with ExitStack() as stack:
             data: dict[str, str] = {"language": language}
             files: dict[str, tuple[str, Any, str]] = {}
@@ -447,6 +461,7 @@ class Qwen3TTSClient:
         output_prefix: str | None = None,
         **gen_kwargs: Any,
     ) -> dict[str, Any]:
+        get_tts_settings().require_enabled()
         with ExitStack() as stack:
             data: dict[str, str] = {"language": language}
             files: dict[str, tuple[str, Any, str]] = {
@@ -476,12 +491,17 @@ class FishSpeechClient:
         base_url: str,
         timeout: float,
         client: httpx.Client | None = None,
+        *,
+        api_key: str | None = None,
     ) -> None:
         normalized = base_url.rstrip("/")
         if normalized.endswith(FISH_API_PREFIX):
             normalized = normalized[: -len(FISH_API_PREFIX)]
         self._base_url = normalized
-        self._client = client or httpx.Client(base_url=normalized, timeout=timeout)
+        self._client = client or httpx.Client(base_url=normalized, timeout=timeout, trust_env=False)
+        key = get_tts_settings().api_key("fishspeech") if api_key is None else api_key
+        if key:
+            self._client.headers["Authorization"] = f"Bearer {key}"
 
     def close(self) -> None:
         self._client.close()
@@ -491,8 +511,12 @@ class FishSpeechClient:
         return response.json()
 
     def download(self, url: str, destination: Path) -> Path:
+        target = self._client.base_url.join(url)
+        origin = httpx.URL(self._base_url)
+        if (target.scheme, target.host, target.port) != (origin.scheme, origin.host, origin.port):
+            raise CliError("Refusing audio download from a different service origin")
         destination.parent.mkdir(parents=True, exist_ok=True)
-        with self._client.stream("GET", url) as response:
+        with self._client.stream("GET", target) as response:
             response.raise_for_status()
             with destination.open("wb") as handle:
                 for chunk in response.iter_bytes():
@@ -542,6 +566,7 @@ class FishSpeechClient:
         speaker_tag: bool = True,
         **gen_kwargs: Any,
     ) -> dict[str, Any]:
+        get_tts_settings().require_enabled()
         with ExitStack() as stack:
             data: dict[str, str] = {"format": audio_format}
             files: dict[str, tuple[str, Any, str]] = {
@@ -605,6 +630,7 @@ class FishSpeechClient:
         if text_file is None and not texts:
             raise ValueError("Either text_file or texts must be provided.")
 
+        get_tts_settings().require_enabled()
         with ExitStack() as stack:
             data: dict[str, Any] = {"format": audio_format}
             files: dict[str, tuple[str, Any, str]] = {
@@ -697,7 +723,7 @@ def build_parser() -> argparse.ArgumentParser:
     qwen_voice_clone.add_argument("--text-file", help="Synthesis text file.")
     qwen_voice_clone.add_argument("--ref-text", help="Inline reference transcript.")
     qwen_voice_clone.add_argument("--ref-text-file", help="Reference transcript file.")
-    qwen_voice_clone.add_argument("--language", default="Auto", help="Qwen language form value.")
+    qwen_voice_clone.add_argument("--language", default=get_tts_settings().language("qwen3tts", "Auto"), help="Qwen language form value.")
     qwen_voice_clone.add_argument("--output-name", help="Optional output filename on the server.")
     qwen_voice_clone.add_argument("--x-vector-only-mode", action="store_true", help="Enable x_vector_only_mode.")
     qwen_voice_clone.add_argument("--download-to", help="Optional local file path for the returned audio.")
@@ -714,7 +740,7 @@ def build_parser() -> argparse.ArgumentParser:
     qwen_voice_clone_batch.add_argument("--text-file", help="Input text file, one line per sample.")
     qwen_voice_clone_batch.add_argument("--ref-text", help="Inline reference transcript for the prompt audio.")
     qwen_voice_clone_batch.add_argument("--ref-text-file", help="Reference transcript file for the prompt audio.")
-    qwen_voice_clone_batch.add_argument("--language", default="Auto", help="Qwen language form value.")
+    qwen_voice_clone_batch.add_argument("--language", default=get_tts_settings().language("qwen3tts", "Auto"), help="Qwen language form value.")
     qwen_voice_clone_batch.add_argument("--output-prefix", help="Output filename prefix on the server.")
     qwen_voice_clone_batch.add_argument("--x-vector-only-mode", action="store_true", help="Enable x_vector_only_mode.")
     qwen_voice_clone_batch.add_argument("--download-dir", help="Optional local directory for returned audios.")
@@ -724,7 +750,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_qwen_generation_args(qwen_narration)
     qwen_narration.add_argument("--text", help="Inline narration text.")
     qwen_narration.add_argument("--text-file", help="Narration text file.")
-    qwen_narration.add_argument("--language", default="Auto", help="Narration language.")
+    qwen_narration.add_argument("--language", default=get_tts_settings().language("qwen3tts", "Auto"), help="Narration language.")
     qwen_narration.add_argument("--speaker", help="Narration speaker.")
     qwen_narration.add_argument("--instruct", help="Narration style instruction.")
     qwen_narration.add_argument("--output-name", help="Optional output filename on the server.")
@@ -737,7 +763,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_qwen_common_args(qwen_narration_batch)
     add_qwen_generation_args(qwen_narration_batch)
     qwen_narration_batch.add_argument("--text-file", required=True, help="Input text file, one line per sample.")
-    qwen_narration_batch.add_argument("--language", default="Auto", help="Narration language.")
+    qwen_narration_batch.add_argument("--language", default=get_tts_settings().language("qwen3tts", "Auto"), help="Narration language.")
     qwen_narration_batch.add_argument("--speaker", help="Narration speaker.")
     qwen_narration_batch.add_argument("--instruct", help="Narration style instruction.")
     qwen_narration_batch.add_argument("--output-prefix", help="Output filename prefix on the server.")
@@ -802,8 +828,9 @@ def add_clone_project_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--engine",
         choices=("indextts", "qwen3tts", "fishspeech"),
-        required=True,
-        help="Which backend service to use.",
+        default=get_tts_settings().provider,
+        required=get_tts_settings().provider is None,
+        help="Backend service (default: TTS_PROVIDER).",
     )
     parser.add_argument("--content-root", default=str(DEFAULT_CONTENT_ROOT), help="Content root directory.")
     parser.add_argument(
@@ -831,9 +858,9 @@ def add_clone_project_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--timeout", type=float, default=300.0, help="HTTP timeout in seconds.")
     parser.add_argument("--indextts-url", default=DEFAULT_INDEXTTS_URL, help="IndexTTS service base URL.")
-    parser.add_argument("--qwen3tts-url", default=DEFAULT_QWEN3TTS_URL, help="Qwen3TTS service base URL.")
-    parser.add_argument("--fish-tts-url", default=DEFAULT_FISH_TTS_URL, help="Fish Speech service base URL.")
-    parser.add_argument("--qwen-language", default="Japanese", help="Qwen3TTS language form value.")
+    parser.add_argument("--qwen3tts-url", default=get_tts_settings().url("qwen3tts"), help="Qwen3TTS service base URL.")
+    parser.add_argument("--fish-tts-url", default=get_tts_settings().url("fishspeech"), help="Fish Speech service base URL.")
+    parser.add_argument("--qwen-language", default=get_tts_settings().language("qwen3tts"), help="Qwen3TTS language form value.")
     parser.add_argument(
         "--qwen-x-vector-only-mode",
         action="store_true",
@@ -862,12 +889,12 @@ def add_clone_project_args(parser: argparse.ArgumentParser) -> None:
 
 
 def add_qwen_common_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--base-url", default=DEFAULT_QWEN3TTS_URL, help="Qwen3TTS service base URL.")
+    parser.add_argument("--base-url", default=get_tts_settings().url("qwen3tts"), help="Qwen3TTS service base URL.")
     parser.add_argument("--timeout", type=float, default=300.0, help="HTTP timeout in seconds.")
 
 
 def add_fish_common_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--base-url", default=DEFAULT_FISH_TTS_URL, help="Fish Speech service base URL.")
+    parser.add_argument("--base-url", default=get_tts_settings().url("fishspeech"), help="Fish Speech service base URL.")
     parser.add_argument("--timeout", type=float, default=300.0, help="HTTP timeout in seconds.")
 
 
@@ -1111,7 +1138,7 @@ def main() -> int:
         if args.command == "fish":
             return cmd_fish(args)
         parser.error(f"Unsupported command: {args.command}")
-    except CliError as exc:
+    except (CliError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     except httpx.HTTPStatusError as exc:
@@ -1524,6 +1551,9 @@ def cmd_list_projects(args: argparse.Namespace) -> int:
 
 
 def cmd_clone_project(args: argparse.Namespace) -> int:
+    if args.engine not in ("indextts", "fishspeech", "qwen3tts"):
+        raise CliError("TTS_PROVIDER must be indextts, fishspeech or qwen3tts")
+    get_tts_settings().require_enabled()
     ensure_tool_available("ffmpeg")
     ensure_tool_available("ffprobe")
 

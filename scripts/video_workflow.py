@@ -17,6 +17,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.workflow_io import digest, lines, read, sha256, write
+from my_tts.config import get_tts_settings
 
 ROOT = Path(__file__).resolve().parents[1]
 EDIT_FIELDS = {"spokenText", "subtitleJa", "subtitleZh", "fishStyle", "fishStyleTag",
@@ -470,9 +471,10 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--output", required=True)
     init.add_argument("--project", help="Separate output project (e.g. a CG version) without editing the script")
     init.add_argument("--cg-plan", help="Optional event CG plan, separate from the script JSON")
-    init.add_argument("--tts-engine", required=True, choices=("fishspeech", "qwen3tts"))
-    init.add_argument("--tts-url", required=True)
-    init.add_argument("--model-id", required=True)
+    init.add_argument("--tts-engine", default=get_tts_settings().provider,
+                      required=get_tts_settings().provider is None, choices=("fishspeech", "qwen3tts"))
+    init.add_argument("--tts-url", help="Default: matching TTS_API_BASE_URL")
+    init.add_argument("--model-id", help="Default: matching TTS_MODEL")
     for name in ("run", "approve"):
         stage = sub.add_parser(name)
         stage.add_argument("--config", required=True)
@@ -518,6 +520,13 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "preview":
             preview(Path(args.script), Path(args.output), args.line_id, args.project)
         elif args.command == "init":
+            settings = get_tts_settings()
+            if args.tts_engine not in ("fishspeech", "qwen3tts"):
+                raise ValueError("TTS_PROVIDER must be fishspeech or qwen3tts")
+            args.tts_url = args.tts_url or settings.url(args.tts_engine)
+            args.model_id = args.model_id or settings.model(args.tts_engine)
+            if not args.model_id:
+                raise ValueError("Set --model-id or TTS_MODEL for the selected backend")
             path = Path(args.output)
             if path.exists():
                 raise ValueError("Config already exists")
@@ -526,6 +535,8 @@ def main(argv: list[str] | None = None) -> int:
             config = {"script": str(script), "tts": {"engine": args.tts_engine, "url": args.tts_url,
                 "modelId": args.model_id, "args": ["--timeout", "900", "--batch-size", "4", "--temperature", "0.7",
                                                   "--top-p", "0.8", "--max-new-tokens", "512"]}}
+            if args.tts_engine == "qwen3tts":
+                config["tts"]["args"] += ["--language", settings.language("qwen3tts")]
             if args.project:
                 project_path(read(script), args.project)
                 config["project"] = args.project

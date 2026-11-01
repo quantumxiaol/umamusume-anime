@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     # Manifest helpers import this module lazily; share the same exception/helpers
@@ -15,12 +17,11 @@ if __package__ in (None, ""):
 
 from scripts.tts_manifest import cache_status, record, request_fingerprint
 from scripts.workflow_io import lines as validated_lines, write as write_json
+from my_tts.config import get_tts_settings
 
 from my_tts.cli import (
     CliError,
     DEFAULT_FISH_STYLE_SYNTAX,
-    DEFAULT_FISH_TTS_URL,
-    DEFAULT_QWEN3TTS_URL,
     FishSpeechClient,
     Qwen3TTSClient,
     extract_fish_gen_kwargs,
@@ -40,31 +41,45 @@ class SynthesisError(RuntimeError):
     pass
 
 
+class SynthesisParser(argparse.ArgumentParser):
+    def parse_known_args(self, args=None, namespace=None):
+        parsed, remaining = super().parse_known_args(args, namespace)
+        settings = get_tts_settings()
+        if parsed.tts_engine not in ("fishspeech", "qwen3tts"):
+            self.error("TTS_PROVIDER must be fishspeech or qwen3tts")
+        parsed.fish_tts_url = parsed.fish_tts_url or settings.url("fishspeech")
+        parsed.qwen3tts_url = parsed.qwen3tts_url or settings.url("qwen3tts")
+        parsed.model_id = parsed.model_id or settings.model(parsed.tts_engine)
+        parsed.language = parsed.language or settings.language(parsed.tts_engine)
+        return parsed, remaining
+
+
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
     try:
         synthesize_script(args)
-    except (CliError, SynthesisError, ValueError, OSError) as exc:
+    except (CliError, SynthesisError, ValueError, OSError, httpx.HTTPError) as exc:
         print(f"error: {exc}")
         return 2
     return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Synthesize audio for structured script lines.")
+    parser = SynthesisParser(description="Synthesize audio for structured script lines.")
     parser.add_argument("--script", required=True, help="Structured script JSON.")
     parser.add_argument("--characters-root", default=str(DEFAULT_CHARACTERS_ROOT), help="Character assets root.")
     parser.add_argument(
         "--tts-engine",
         choices=("qwen3tts", "fishspeech"),
-        required=True,
-        help="Voice clone backend to call; must be selected explicitly.",
+        default=get_tts_settings().provider,
+        required=get_tts_settings().provider is None,
+        help="Voice clone backend (default: TTS_PROVIDER).",
     )
-    parser.add_argument("--qwen3tts-url", default=DEFAULT_QWEN3TTS_URL, help="Qwen3-TTS service URL.")
-    parser.add_argument("--fish-tts-url", default=DEFAULT_FISH_TTS_URL, help="Fish Speech service URL.")
+    parser.add_argument("--qwen3tts-url", help="Qwen3-TTS service URL (default: matching TTS_API_BASE_URL).")
+    parser.add_argument("--fish-tts-url", help="Fish Speech service URL (default: matching TTS_API_BASE_URL).")
     parser.add_argument("--timeout", type=float, default=300.0, help="HTTP timeout in seconds.")
-    parser.add_argument("--language", default="Japanese", help="Qwen3-TTS language value.")
+    parser.add_argument("--language", help="Language (default: TTS_LANGUAGE; Fish detects language from text).")
     parser.add_argument(
         "--speaker-id",
         action="append",
@@ -76,7 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Only synthesize lines with this id. Can be passed more than once.",
     )
     parser.add_argument("--overwrite", action="store_true", help="Regenerate existing audio files.")
-    parser.add_argument("--model-id", help="Operator-supplied model/checkpoint version; change when weights or server defaults change.")
+    parser.add_argument("--model-id", help="Model/checkpoint version (default: TTS_MODEL); records identity, does not load server weights.")
     parser.add_argument("--reuse-unverified", action="store_true", help="Explicitly keep legacy WAVs without receipts (never permits stale/modified WAVs).")
     parser.add_argument("--audit", action="store_true", help="Report cache status without contacting TTS or writing audio.")
     parser.add_argument("--audit-output", help="Optional JSON report for --audit.")
@@ -212,11 +227,15 @@ def synthesize_script(args: argparse.Namespace) -> None:
         print("all selected audio targets retained")
         return
 
+    get_tts_settings().require_enabled()
     if args.tts_engine == "fishspeech":
         client: Qwen3TTSClient | FishSpeechClient = FishSpeechClient(base_url=args.fish_tts_url, timeout=args.timeout)
     else:
         client = Qwen3TTSClient(base_url=args.qwen3tts_url, timeout=args.timeout)
     try:
+        health = client.health()
+        if health.get("status") != "ok":
+            raise SynthesisError(f"TTS service is not healthy: {health.get('status')}")
         with tempfile.TemporaryDirectory(prefix="script-tts-") as temp_name:
             temp_dir = Path(temp_name)
             if args.no_batch:

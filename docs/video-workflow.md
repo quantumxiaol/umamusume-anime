@@ -5,6 +5,44 @@
 剧本仍用原来的 `lines` / `scenes[].lines` 协议；不改场景结构，不改 RoleTone 评分及替换规则。
 配置、候选、报告、指纹都放 `draft/` 等已忽略目录，不需要提交 Git。
 
+## TTS 环境配置与远程 GPU
+
+TTS 客户端、剧本合成和 `workflow init` 读取仓库根目录 `.env`，与命令运行目录无关。
+优先级是显式 CLI 参数 > 进程环境变量 > `.env` > 原有默认值；未设置 `TTS_PROVIDER` 时仍须明确指定后端。
+
+```dotenv
+TTS_ENABLED=true
+TTS_PROVIDER=fishspeech
+TTS_API_BASE_URL=http://127.0.0.1:8002
+TTS_MODEL=s2-pro
+TTS_API_KEY=你的密钥
+TTS_LANGUAGE=ja
+```
+
+上面的地址用于本机服务或端口转发；远程服务器地址只填写在本地 `.env` 中，不硬编码到源码或文档示例。
+URL 可包含末尾的 `/fishspeech`。
+健康检查、单句、批量及音频下载都携带 Bearer 鉴权；密钥只在运行时读取，不写入工作流或音频记录。
+Fish 兼容 `FISH_TTS_API_KEY` 作为备用密钥。服务请求直接连接，不使用系统 HTTP 代理。
+`TTS_ENABLED=false` 阻止新语音生成，仍允许健康检查、音频审计和已有音频复用。
+
+`TTS_MODEL` 是音频指纹中的模型身份声明，不会让服务端切换权重。
+目前 Fish 的克隆接口没有 `model` 或 `language` 字段：语言由输入文本决定，`TTS_LANGUAGE=ja` 不会转换文本；
+Qwen 则把 `ja` 映射成 `Japanese`。切换后端时，对应的 URL、模型和密钥不会从另一后端继承。
+
+配置完成后，可直接检查服务：
+
+```bash
+.venv/bin/python -m my_tts.cli fish health --timeout 10
+```
+
+`synthesize_script.py --script ...` 可省略环境中已配置的后端、URL 和模型参数。
+`workflow init` 将当时解析出的后端、URL、模型（及 Qwen 语言）固化到工作流文件；后续修改 `.env` 不会重定向旧工作流。
+新音频请求会先检查服务健康状态；CUDA 编译的第一次推理可能需要较长预热，可用 `--timeout 900`。
+
+本节升级覆盖 TTS 推理。现有最终渲染器仍要求 loopback TTS 关闭门禁，远程 URL 会被拒绝；
+不要对远程 GPU 服务调用 shutdown 或绕过本机内存、磁盘检查。远程推理音频的最终渲染门禁需另行适配。
+客户端源码也参与既有 WAV 指纹，因此升级后旧记录可能显示 `stale`；不会自动覆写旧音频或伪造迁移记录。
+
 ## 1. 从成片定位
 
 ```bash

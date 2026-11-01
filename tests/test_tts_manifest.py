@@ -69,6 +69,7 @@ def test_stale_audio_cannot_use_legacy_override(voice):
 
 
 def test_audit_is_non_mutating(voice, monkeypatch):
+    monkeypatch.setenv("TTS_ENABLED", "false")
     _, args, audio, _ = voice
     args.audit = True
     args.audit_output = str(audio.parent / "audit.json")
@@ -76,6 +77,29 @@ def test_audit_is_non_mutating(voice, monkeypatch):
     synth.synthesize_script(args)
     assert read(Path(args.audit_output))["lines"][0]["status"] == "unverified"
     assert not receipt_path(audio).exists()
+
+
+def test_disabled_generation_does_not_contact_backend(voice, monkeypatch):
+    _, args, audio, _ = voice
+    audio.unlink()
+    monkeypatch.setenv("TTS_ENABLED", "false")
+    monkeypatch.setattr(synth, "FishSpeechClient", lambda **kw: pytest.fail("Must not contact TTS"))
+    with pytest.raises(ValueError, match="TTS_ENABLED=false"):
+        synth.synthesize_script(args)
+    assert not audio.exists()
+
+
+def test_unhealthy_service_does_not_generate_audio(voice, monkeypatch):
+    _, args, audio, _ = voice
+    audio.unlink()
+    class UnhealthyClient:
+        def __init__(self, **kw): pass
+        def health(self): return {"status": "shutting_down"}
+        def close(self): pass
+    monkeypatch.setattr(synth, "FishSpeechClient", UnhealthyClient)
+    with pytest.raises(synth.SynthesisError, match="not healthy"):
+        synth.synthesize_script(args)
+    assert not audio.exists()
 
 
 def test_copy_receipt_binds_to_candidate_bytes(voice):
@@ -118,6 +142,7 @@ def test_generation_records_each_wav_then_reuses_without_service(voice, monkeypa
     args.no_batch = not batch
     class FakeClient:
         def __init__(self, **kw): pass
+        def health(self): return {"status": "ok"}
         def voice_clone(self, **kw):
             assert kw["text"].startswith("<|speaker:0|>")
             return {"audio": {"filename": "voice.wav"}}
