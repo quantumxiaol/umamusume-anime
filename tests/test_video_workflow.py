@@ -174,8 +174,14 @@ def pipeline_args(config, command="run", **kwargs):
     return argparse.Namespace(config=str(config), command=command, until="render", accept_warnings=False, **kwargs)
 
 
-def test_pipeline_review_gates_and_final_wrapper_only(pipeline):
+@pytest.mark.parametrize("location", [None, "remote"])
+def test_pipeline_review_gates_and_final_wrapper_only(pipeline, monkeypatch, location):
     config, keys, commands = pipeline
+    if location:
+        saved = read(config)
+        saved["tts"]["location"] = location  # A remote GPU reached through loopback.
+        write(config, saved)
+    monkeypatch.setenv("TTS_LOCATION", "local")
     workflow.workflow(pipeline_args(config))
     assert not any("director.py" in " ".join(c) for c in commands)
     workflow.workflow(pipeline_args(config, "approve", stage="audio"))
@@ -187,6 +193,7 @@ def test_pipeline_review_gates_and_final_wrapper_only(pipeline):
     final = commands[-1]
     assert final[0].endswith("render_4k60.sh")
     assert final[-2:] == ["--tts-url", "http://127.0.0.1:8002"]
+    assert final[final.index("--tts-location") + 1] == (location or "auto")
     assert sum("audio_qc.py" in " ".join(c) for c in commands) == 1
 
 

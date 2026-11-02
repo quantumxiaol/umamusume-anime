@@ -14,6 +14,7 @@ TTS 客户端、剧本合成和 `workflow init` 读取仓库根目录 `.env`，�
 TTS_ENABLED=true
 TTS_PROVIDER=fishspeech
 TTS_API_BASE_URL=http://127.0.0.1:8002
+TTS_LOCATION=auto
 TTS_MODEL=s2-pro
 TTS_API_KEY=你的密钥
 TTS_LANGUAGE=ja
@@ -21,6 +22,9 @@ TTS_LANGUAGE=ja
 
 上面的地址用于本机服务或端口转发；远程服务器地址只填写在本地 `.env` 中，不硬编码到源码或文档示例。
 URL 可包含末尾的 `/fishspeech`。
+`TTS_LOCATION=auto` 将显式 loopback 地址视为本机，其他主机视为远端。
+通过 SSH 隧道/端口转发连接远端 GPU 时，即使 URL 是 localhost，也要设置 `TTS_LOCATION=remote`。
+`workflow init` 和最终渲染器也接受 `--tts-location auto|local|remote`；`local` 仅接受 loopback URL。
 健康检查、单句、批量及音频下载都携带 Bearer 鉴权；密钥只在运行时读取，不写入工作流或音频记录。
 Fish 兼容 `FISH_TTS_API_KEY` 作为备用密钥。服务请求直接连接，不使用系统 HTTP 代理。
 `TTS_ENABLED=false` 阻止新语音生成，仍允许健康检查、音频审计和已有音频复用。
@@ -36,11 +40,16 @@ Qwen 则把 `ja` 映射成 `Japanese`。切换后端时，对应的 URL、模型
 ```
 
 `synthesize_script.py --script ...` 可省略环境中已配置的后端、URL 和模型参数。
-`workflow init` 将当时解析出的后端、URL、模型（及 Qwen 语言）固化到工作流文件；后续修改 `.env` 不会重定向旧工作流。
+`workflow init` 将当时解析出的后端、URL、模型、实际位置 `tts.location`（及 Qwen 语言）固化到工作流文件；后续修改 `.env` 不会重定向旧工作流。
+旧工作流未写 `tts.location` 时按 URL 自动判断；旧的隧道配置须在该工作流的 `tts` 对象内补 `"location": "remote"`。
+返修的 `create --config` 记录原生产基线，但 `generate` 仍使用自己收到的参数和环境；环境变化后须显式传入原配置的后端、URL、模型和生成参数。
 新音频请求会先检查服务健康状态；CUDA 编译的第一次推理可能需要较长预热，可用 `--timeout 900`。
+`loaded=false` 只说明服务可达、模型尚未加载，不能证明推理成功。首次请求期间健康检查也可能阻塞；等待当前请求并查看日志，不重复提交任务。
 
-本节升级覆盖 TTS 推理。现有最终渲染器仍要求 loopback TTS 关闭门禁，远程 URL 会被拒绝；
-不要对远程 GPU 服务调用 shutdown 或绕过本机内存、磁盘检查。远程推理音频的最终渲染门禁需另行适配。
+最终渲染器同样读取 `.env`，保留旧的进程变量 `TTS_ENGINE` / `TTS_URL` 作为兼容覆盖。
+本机 TTS 仍执行健康检查、优雅关闭和 listener 检查；远端 TTS 保持运行，渲染时不发健康检查或 shutdown 请求，也不要求远端在线。
+所有音频下载到本地并完成审阅后，即可在远端不可用时渲染或续渲染。两种模式都保留本机内存压力、临时磁盘和并发限制。
+优先用 `video_workflow.py run --config ... --until render`，确保采用保存的后端、URL 和位置；直接调用渲染器则使用当前环境配置。
 客户端源码也参与既有 WAV 指纹，因此升级后旧记录可能显示 `stale`；不会自动覆写旧音频或伪造迁移记录。
 
 ## 1. 从成片定位
@@ -76,8 +85,7 @@ Qwen 则把 `ja` 映射成 `Japanese`。切换后端时，对应的 URL、模型
 
 .venv/bin/python scripts/video_workflow.py repair generate \
   --work-dir draft/mcqueen_retry_01 -- \
-  --tts-engine fishspeech --fish-tts-url http://127.0.0.1:8002 \
-  --model-id s2-pro-local-v1 --timeout 900 --batch-size 4 \
+  --timeout 900 --batch-size 4 \
   --temperature 0.7 --top-p 0.8 --max-new-tokens 512
 
 .venv/bin/python scripts/video_workflow.py repair compare --work-dir draft/mcqueen_retry_01
@@ -122,7 +130,6 @@ Qwen 则把 `ja` 映射成 `Japanese`。切换后端时，对应的 URL、模型
 ```bash
 .venv/bin/python scripts/synthesize_script.py \
   --script draft/mcqueen_stay_with_you_script.json \
-  --tts-engine fishspeech --model-id s2-pro-local-v1 \
   --batch-size 4 --temperature 0.7 --top-p 0.8 --max-new-tokens 512 \
   --audit --audit-output /tmp/audio-cache.json
 ```
@@ -156,8 +163,7 @@ Qwen 则把 `ja` 映射成 `Japanese`。切换后端时，对应的 URL、模型
 ```bash
 .venv/bin/python scripts/video_workflow.py init \
   --script draft/mcqueen_stay_with_you_script.json \
-  --output draft/mcqueen.workflow.json \
-  --tts-engine fishspeech --tts-url http://127.0.0.1:8002 --model-id s2-pro-local-v1
+  --output draft/mcqueen.workflow.json
 
 .venv/bin/python scripts/video_workflow.py run --config draft/mcqueen.workflow.json
 # TTS / QC 后暂停；读报告并试听，必要时先返修：
@@ -173,7 +179,7 @@ Qwen 则把 `ja` 映射成 `Japanese`。切换后端时，对应的 URL、模型
 短音频/字幕警告需要查看后再 `approve ... --accept-warnings`，不改变 RoleTone 阈值；音频错误或评分失败不能批准。
 预览默认覆盖首/中/末句、背景/人物布置发生变化的句子，以及所有字幕告警。
 检查点保存在配置旁的 `.work/`，输入和报告有哈希绑定；变更后自动要求重新检查。不是素材管理系统，也不要求 Git 保存产物。
-渲染只委托 `scripts/render_4k60.sh`，保持 **3840×2160、60fps、0.1 秒句间隔**，保留其内存、磁盘、TTS 关闭和分块续渲染检查。这个工具不会自行重启 TTS。
+渲染只委托 `scripts/render_4k60.sh`，保持 **3840×2160、60fps、0.1 秒句间隔**，保留其内存、磁盘、本机 TTS 关闭和分块续渲染检查。远端 TTS 保持运行；这个工具不会自行重启 TTS。
 
 这些命令负责机械执行和安全复用；从小说写出角色口吻、译文、服装及连贯场景，仍由 Agent 创作，不交给固定模板自动压缩。
 
@@ -204,8 +210,7 @@ CG 由带角色/场景参考的生图工具准备并人工审阅，不由 Direct
 ```bash
 .venv/bin/python scripts/video_workflow.py init \
   --script draft/story_script.json --output draft/story_cg.workflow.json \
-  --project Story_CG_4k60 --cg-plan draft/story_cg_plan.json \
-  --tts-engine fishspeech --tts-url http://127.0.0.1:8002 --model-id s2-pro-local-v1
+  --project Story_CG_4k60 --cg-plan draft/story_cg_plan.json
 ```
 
 新配置的 `project` 可单独指定输出，保留原版视频；`cgPlan` 为可选项。继续沿用音频审阅 → 预览审阅 → 渲染流程。

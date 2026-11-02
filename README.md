@@ -153,7 +153,7 @@ Remotion 不读取剧本里的 `characters`、`activeSpeaker`，也不会根据 
 
 ### TTS 服务
 
-日语角色配音支持 Fish Speech 和 Qwen3-TTS，当前工作流优先使用 Fish Speech。`scripts/synthesize_script.py` 要求显式传入 `--tts-engine fishspeech` 或 `--tts-engine qwen3tts`，不会根据端口或缺省值猜测后端。中文配音或跨语种克隆路线依赖 IndexTTS，后续可用于“日语克隆说中文”的版本。
+日语角色配音支持 Fish Speech 和 Qwen3-TTS，当前工作流优先使用 Fish Speech。通过根目录 `.env` 的 `TTS_PROVIDER` 或 `--tts-engine` 选择后端，不会根据端口猜测。远端 GPU 的 URL 和密钥只放本地 `.env`；配置和隧道用法见 [工作流指南](docs/video-workflow.md#tts-环境配置与远程-gpu)。中文配音或跨语种克隆路线依赖 IndexTTS，后续可用于“日语克隆说中文”的版本。
 
 ---
 
@@ -508,12 +508,13 @@ pnpm exec remotion still EndDay-Final-4k60 \
 
 ```bash
 scripts/render_4k60.sh \
-  --project EndDay_Final_4k60 \
-  --tts-engine fishspeech \
-  --tts-url http://127.0.0.1:8002
+  --project EndDay_Final_4k60
 ```
 
-统一渲染器会获取仓库级锁、优雅关闭本次使用的 TTS、检查 listener、内存和磁盘，
+直接调用时从 `.env` 读取 TTS 配置；已有工作流推荐使用 `video_workflow.py run --config ... --until render` 保持参数一致。
+统一渲染器会获取仓库级锁，仅对本机 TTS 执行优雅关闭和 listener 检查；远端 TTS 不发送健康检查或关闭请求。
+`TTS_LOCATION=auto` 自动区分 loopback 与远端，通过本机端口转发连接 GPU 时设置 `TTS_LOCATION=remote`。
+两种模式都检查本机内存和磁盘，
 从仅含当前项目的临时 public 目录 bundle 一次，再以默认串行、显式可控并行的方式渲染并校验所有 chunk。
 有效 chunk 只有在媒体规格和渲染签名都匹配时才会续用。
 
@@ -530,7 +531,7 @@ scripts/render_4k60.sh \
 源码中的 `DEFAULT_FPS = 30` 只作为普通预览回退值；统一渲染器传入
 `renderFps: 60`，最终 composition metadata 和成片均按 60fps 校验。
 
-TTS 关闭后需要并行两个 chunk 时显式加 `--jobs 2`。并行不会降低单个 Remotion
+需要并行两个 chunk 时显式加 `--jobs 2`。并行不会降低单个 Remotion
 实例的默认 `--render-concurrency 1`，而且会自动提高内存和临时磁盘门槛；门槛不够时
 直接拒绝启动。
 

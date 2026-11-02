@@ -40,6 +40,9 @@ class TTSSettings:
     def model(self, provider: str) -> str | None:
         return self.for_provider(provider, "TTS_MODEL")
 
+    def location(self, provider: str) -> str:
+        return (self.for_provider(provider, "TTS_LOCATION") or "auto").lower()
+
     def language(self, provider: str, fallback: str = "Japanese") -> str:
         value = self.for_provider(provider, "TTS_LANGUAGE") or fallback
         if provider == "qwen3tts":

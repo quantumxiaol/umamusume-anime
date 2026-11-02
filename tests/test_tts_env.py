@@ -53,7 +53,26 @@ def test_workflow_snapshots_defaults_without_secret(tmp_path):
     assert video_workflow.main(["init", "--script", str(script), "--output", str(output)]) == 0
     tts = json.loads(output.read_text())["tts"]
     assert (tts["engine"], tts["url"], tts["modelId"]) == ("fishspeech", "http://gpu:18002", "s2-pro")
+    assert tts["location"] == "remote"
     assert "secret" not in output.read_text()
+
+
+def test_workflow_snapshots_remote_tunnel_location(tmp_path):
+    set_env_file("TTS_PROVIDER=fishspeech\nTTS_API_BASE_URL=http://127.0.0.1:8002\n"
+                 "TTS_MODEL=s2-pro\nTTS_LOCATION=remote\n")
+    script, output = tmp_path / "script.json", tmp_path / "workflow.json"
+    script.write_text(json.dumps({"projectId": "Smoke", "lines": [{"id": "a", "speakerId": "hero"}]}))
+    assert video_workflow.main(["init", "--script", str(script), "--output", str(output)]) == 0
+    assert json.loads(output.read_text())["tts"]["location"] == "remote"
+
+
+@pytest.mark.parametrize("location", ["unknown", "local"])
+def test_workflow_rejects_invalid_remote_location_cleanly(tmp_path, capsys, location):
+    set_env_file(f"TTS_PROVIDER=fishspeech\nTTS_API_BASE_URL=https://gpu.example.invalid\nTTS_LOCATION={location}\nTTS_MODEL=s2-pro\n")
+    output = tmp_path / "workflow.json"
+    assert video_workflow.main(["init", "--script", "unused.json", "--output", str(output)]) == 2
+    assert capsys.readouterr().err.startswith("error:")
+    assert not output.exists()
 
 
 @pytest.mark.parametrize("client_class,provider,prefix", [

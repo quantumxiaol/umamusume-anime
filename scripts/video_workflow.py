@@ -425,6 +425,7 @@ def workflow(args: argparse.Namespace) -> None:
         return
     # The authoritative memory/backend-shutdown/disk gates remain in this wrapper.
     run([str(ROOT / "scripts/render_4k60.sh"), "--project", project,
+         "--tts-location", config["tts"].get("location", "auto"),
          "--tts-engine", config["tts"]["engine"], "--tts-url", config["tts"]["url"]])
 
 
@@ -474,6 +475,7 @@ def build_parser() -> argparse.ArgumentParser:
     init.add_argument("--tts-engine", default=get_tts_settings().provider,
                       required=get_tts_settings().provider is None, choices=("fishspeech", "qwen3tts"))
     init.add_argument("--tts-url", help="Default: matching TTS_API_BASE_URL")
+    init.add_argument("--tts-location", choices=("auto", "local", "remote"), help="Default: TTS_LOCATION or auto")
     init.add_argument("--model-id", help="Default: matching TTS_MODEL")
     for name in ("run", "approve"):
         stage = sub.add_parser(name)
@@ -524,6 +526,12 @@ def main(argv: list[str] | None = None) -> int:
             if args.tts_engine not in ("fishspeech", "qwen3tts"):
                 raise ValueError("TTS_PROVIDER must be fishspeech or qwen3tts")
             args.tts_url = args.tts_url or settings.url(args.tts_engine)
+            args.tts_location = args.tts_location or settings.location(args.tts_engine)
+            from scripts.render_4k60 import RenderError, resolve_tts_location
+            try:
+                location = resolve_tts_location(args.tts_url, args.tts_location)
+            except RenderError as exc:
+                raise ValueError(str(exc)) from exc
             args.model_id = args.model_id or settings.model(args.tts_engine)
             if not args.model_id:
                 raise ValueError("Set --model-id or TTS_MODEL for the selected backend")
@@ -533,6 +541,7 @@ def main(argv: list[str] | None = None) -> int:
             script = Path(args.script).resolve()
             lines(read(script))
             config = {"script": str(script), "tts": {"engine": args.tts_engine, "url": args.tts_url,
+                "location": location,
                 "modelId": args.model_id, "args": ["--timeout", "900", "--batch-size", "4", "--temperature", "0.7",
                                                   "--top-p", "0.8", "--max-new-tokens", "512"]}}
             if args.tts_engine == "qwen3tts":

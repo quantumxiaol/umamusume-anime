@@ -18,6 +18,15 @@ SKILL = ROOT / ".agents/skills/umamusume-video-pipeline/SKILL.md"
 GUIDE = ROOT / "docs/video-workflow.md"
 
 
+@pytest.fixture(autouse=True)
+def example_environment(monkeypatch, isolated_tts_environment):
+    """The copyable commands assume the documented .env has been configured."""
+    monkeypatch.setenv("TTS_PROVIDER", "fishspeech")
+    monkeypatch.setenv("TTS_API_BASE_URL", "http://127.0.0.1:8002")
+    monkeypatch.setenv("TTS_MODEL", "s2-pro-example-v1")
+    monkeypatch.setenv("TTS_LANGUAGE", "ja")
+
+
 def commands(path):
     for block in re.findall(r"```bash\n(.*?)```", path.read_text(), re.S):
         for line in block.replace("\\\n", " ").splitlines():
@@ -49,8 +58,11 @@ def test_documented_command_parses_without_side_effects(tokens):
     parse_command(tokens)
 
 
-def test_skill_audit_and_retry_match_initialized_generation_profile(tmp_path):
+@pytest.mark.parametrize("url,location", [("http://127.0.0.1:8002", "local"),
+                                           ("https://gpu.example.invalid", "remote")])
+def test_skill_audit_and_retry_match_initialized_generation_profile(tmp_path, monkeypatch, url, location):
     """Following successive examples must not accidentally invalidate a fresh WAV."""
+    monkeypatch.setenv("TTS_API_BASE_URL", url)
     script = tmp_path / "script.json"
     line = {"id": "kb001", "speakerId": "hero", "spokenText": "[soft tone]こんにちは。"}
     write(script, {"projectId": "Example_4k60", "lines": [line]})
@@ -61,6 +73,8 @@ def test_skill_audit_and_retry_match_initialized_generation_profile(tmp_path):
     init_args[init_args.index("--script") + 1] = str(script)
     init_args[init_args.index("--output") + 1] = str(config)
     assert main(init_args) == 0
+    assert read(config)["tts"]["url"] == url
+    assert read(config)["tts"]["location"] == location
     production = tts_parser().parse_args(tts_options(read(config)))
     audit = next(parse_command(xs) for xs in examples if "--audit" in xs)
     retry_cmd = next(xs for xs in examples if xs[2:4] == ["repair", "generate"])
@@ -73,6 +87,7 @@ def test_skill_audit_and_retry_match_initialized_generation_profile(tmp_path):
         args.characters_root = str(character.parent)
     assert request_fingerprint(line, production) == request_fingerprint(line, audit)
     assert request_fingerprint(line, production) == request_fingerprint(line, retry)
+    assert production.fish_tts_url == audit.fish_tts_url == retry.fish_tts_url == url
 
 
 def test_workflow_reference_is_resolvable_from_skill():

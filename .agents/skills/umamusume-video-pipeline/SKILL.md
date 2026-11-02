@@ -82,27 +82,48 @@ Avoid excessive volume tags. If delivery drifts, first remove extra tags or lowe
 
 ### 1. Establish One Production Configuration
 
-Select the backend explicitly; never infer it from a port. Fish Speech is the current default choice unless the user selects Qwen3-TTS. Keep the selected backend, URL, model identity, and generation parameters consistent through the run and rendering shutdown gate.
+Select the backend through `TTS_PROVIDER` in the repository `.env` or an explicit CLI flag; never infer it from a port. Honor the configured backend. Fish Speech is the preferred choice when no backend has been selected. Keep the backend, URL, model identity, generation parameters, and local/remote location consistent through production and rendering.
+
+#### Environment Configuration and Remote GPU TTS
+
+Read the TTS configuration without printing API keys. The shared defaults are read from the repository root `.env`, independent of the working directory. Explicit CLI flags override process environment variables, which override `.env`. Keep real server addresses and credentials in the ignored `.env`, not source code or copyable examples. Built-in URL defaults are loopback only.
+
+```dotenv
+TTS_ENABLED=true
+TTS_PROVIDER=fishspeech
+TTS_API_BASE_URL=http://127.0.0.1:8002
+TTS_LOCATION=auto
+TTS_MODEL=s2-pro
+TTS_API_KEY=
+TTS_LANGUAGE=ja
+```
+
+The URL above is a local example. For a remote GPU, use the user's configured remote URL in `.env`; do not overwrite it with localhost when following examples. `TTS_LOCATION=auto` treats explicit loopback URLs as local and other hosts as remote. **For an SSH tunnel/port forward to a remote GPU, set `TTS_LOCATION=remote` even if its URL is localhost.** `--tts-location remote` is also supported by workflow `init` and the renderer. This describes where inference runs; it is not a way to bypass resource checks for a local model.
+
+The client attaches `TTS_API_KEY` as Bearer authorization to health, synthesis, and audio-download requests. Fish also accepts `FISH_TTS_API_KEY` as a fallback. Keys are read at runtime and are not saved in workflow files or audio receipts. Do not source or echo the entire `.env`. `TTS_ENABLED=false` blocks new synthesis but allows health checks, audits, retained audio, and rendering.
+
+`TTS_MODEL` supplies the default model identity for receipts; it does not switch server weights. Fish's clone API detects language from the input text and has no `model` or `language` request field; `TTS_LANGUAGE=ja` does not translate text. Qwen maps `ja` to `Japanese`.
+
+The examples below inherit `.env`. `workflow init` snapshots the resolved backend, URL, model and location (and Qwen language). Resumes use that saved configuration; changing `.env` does not redirect old workflows. For repair/audit, match the saved production backend/model/URL and arguments explicitly if the current environment differs. `repair create --config` records a baseline; `repair generate` still takes its own CLI/environment defaults. See the [workflow guide](../../../docs/video-workflow.md) for configuration details.
 
 `--model-id` is an operator-declared checkpoint/version label, not automatic proof of the server's weights. Base it on the supplied launch configuration or known local setup. Keep it stable across resumes; update it when weights, server defaults, or relevant server implementation change. Do not invent a verified version when the model is unknown.
 
 Check the selected service before sending generation requests, not merely to locate lines, audit files, preview, or resume an already-audio-complete render:
 
 ```bash
-.venv/bin/python -m my_tts.cli fish health --base-url http://127.0.0.1:8002 --timeout 10
+.venv/bin/python -m my_tts.cli fish health --timeout 10
 ```
 
-For Qwen3-TTS use `qwen health` and the actual selected URL instead. If unavailable or timing out, ask the user to start/restart that backend; do not switch voices or shut down unrelated services.
+For Qwen3-TTS use `qwen health`. For an existing production, check its saved URL rather than a changed `.env` default. A healthy service with `loaded=false` is reachable but not warmed up; first CUDA load/compile may take minutes. Allow `--timeout 900` for generation and wait for the current request instead of launching duplicate retries. Health may also stall during first initialization. Diagnose authentication, connectivity or server logs before requesting a restart; do not switch voices or shut down unrelated services. Health alone is not an inference test: when validating a new deployment, generate and download one short sample before batching. Token throughput is not end-to-end latency; upload, initialization and download time also matter.
 
 Example configuration after creating `draft/endday_final_script.json` with project `EndDay_Final_4k60`:
 
 ```bash
 .venv/bin/python scripts/video_workflow.py init \
-  --script draft/endday_final_script.json --output draft/endday.workflow.json \
-  --tts-engine fishspeech --tts-url http://127.0.0.1:8002 --model-id s2-pro-local-v1
+  --script draft/endday_final_script.json --output draft/endday.workflow.json
 ```
 
-These names and the model label are examples, not targets to reuse for a different story. `init` refuses to overwrite an existing configuration; inspect and reuse/edit it for a resume. Its default `tts.args` are timeout 900, batch size 4, temperature 0.7, top-p 0.8, max-new-tokens 512. Fish S2-Pro usually benefits from batch size 2–4. Qwen supports its own language/sampling/subtalker flags. Adjust the configuration before generating; avoid changing global settings just to fix one line.
+These project/file names are examples, not targets to reuse for a different story. The model label comes from the configured `TTS_MODEL`. `init` refuses to overwrite an existing configuration; inspect and reuse/edit it for a resume. Its default `tts.args` are timeout 900, batch size 4, temperature 0.7, top-p 0.8, max-new-tokens 512. Fish S2-Pro usually benefits from batch size 2–4. Qwen supports its own language/sampling/subtalker flags. Adjust the configuration before generating; avoid changing global settings just to fix one line.
 
 ### 2. Generate Audio and Review QC
 
@@ -163,7 +184,6 @@ Timestamps include the default one-second title intro. An old MP4 needs its matc
   --script draft/endday_final_script.json --config draft/endday.workflow.json \
   --line-id kb001 --work-dir draft/endday_retry_01
 .venv/bin/python scripts/video_workflow.py repair generate --work-dir draft/endday_retry_01 -- \
-  --tts-engine fishspeech --fish-tts-url http://127.0.0.1:8002 --model-id s2-pro-local-v1 \
   --timeout 900 --batch-size 4 --temperature 0.7 --top-p 0.8 --max-new-tokens 512
 .venv/bin/python scripts/video_workflow.py repair compare --work-dir draft/endday_retry_01
 ```
@@ -176,7 +196,7 @@ Use `--speaker-id` instead of `--line-id` for a character-wide voice replacement
 
 Only approved replacements update the original WAVs and corresponding script edits, with backups and receipts preserved. The original production request and actual retry settings are both recorded for accepted candidates. Pass the production `--config` especially for legacy audio without receipts. Confirm the report's applied count; a high-scoring original may cause a new candidate to be kept rather than applied. Do not silently override this policy or pretend a requested content correction was applied when it was not.
 
-Use a new repair directory for another attempt or when bound inputs change. If the production configuration/backend/model changes, restart the repair with that configuration rather than mixing unrecorded defaults. Rerun the production workflow after application so audio QC, duration-dependent timing, and visuals are current. Restart TTS first if an earlier final render stopped it.
+Use a new repair directory for another attempt or when bound inputs change. If the production configuration/backend/model changes, restart the repair with that configuration rather than mixing unrecorded defaults. Rerun the production workflow after application so audio QC, duration-dependent timing, and visuals are current. Restart local TTS first if an earlier final render stopped it; remote TTS is left running.
 
 ## Fingerprints and Existing Productions
 
@@ -184,8 +204,7 @@ Each new WAV receives a `.wav.tts.json` receipt. File existence alone is not eno
 
 ```bash
 .venv/bin/python scripts/synthesize_script.py \
-  --script draft/endday_final_script.json --tts-engine fishspeech \
-  --fish-tts-url http://127.0.0.1:8002 --model-id s2-pro-local-v1 \
+  --script draft/endday_final_script.json \
   --timeout 900 --batch-size 4 --temperature 0.7 --top-p 0.8 --max-new-tokens 512 \
   --audit --audit-output draft/endday_audio_audit.json
 ```
@@ -220,17 +239,17 @@ The preview tool computes 60fps/intro-adjusted frames and bundles only the selec
 After required review, or to resume an interrupted render with already-validated content:
 
 ```bash
-scripts/render_4k60.sh --project EndDay_Final_4k60 \
-  --tts-engine fishspeech --tts-url http://127.0.0.1:8002
+scripts/render_4k60.sh --project EndDay_Final_4k60
 ```
 
-Preserve the recorded backend/URL and media parameters. No TTS restart is needed just to resume matching render chunks; an already-refused connection is handled by the wrapper. Workflow configuration currently targets 4K60/100 ms gaps; for explicitly different dimensions/gaps use the appropriate existing lower-level tools, not a fictitious workflow flag. For 1080p Director use `--width 1920 --height 1080`; final 4K60 always uses the unified wrapper.
+Prefer `video_workflow.py run --config ... --until render` to preserve the saved backend/URL/location. The direct wrapper example inherits the current `.env`; pass the saved values explicitly if they differ. No TTS restart is needed just to resume matching render chunks: local connection refusal is handled by the wrapper, and remote TTS is not contacted at all. Workflow configuration currently targets 4K60/100 ms gaps; for explicitly different dimensions/gaps use the appropriate existing lower-level tools, not a fictitious workflow flag. For 1080p Director use `--width 1920 --height 1080`; final 4K60 always uses the unified wrapper.
 
 ### Non-negotiable Render Safety
 
-- Do not shut down TTS while synthesis, QC, or retry work remains. Never infer the backend from a port.
-- The final wrapper checks the selected loopback backend, requests graceful shutdown, verifies `server_stopped: true` and that its listener is gone. Only connection-refused means already stopped. A timeout, old shutdown `404`, missing confirmation, or live listener is a real blocker; ask for the selected server to be restarted/closed, never use broad `pkill`.
-- Require valid `memory_pressure -Q` before/after shutdown and at least 40% free pressure for one worker, plus 10 percentage points per extra active worker; require 20 GiB scratch per outer job on both temp/output volumes. Do not bypass these gates.
+- Do not shut down local TTS while synthesis, QC, or retry work remains. Never infer the backend from a port.
+- **Remote TTS stays running.** Rendering uses local audio files; do not send health/shutdown requests to the remote GPU, wait for its listener to disappear, or require it to be online for a render/resume. This also applies to tunnels explicitly marked `remote`.
+- For local TTS, the wrapper checks the selected loopback backend, requests graceful shutdown, verifies `server_stopped: true` and that its listener is gone. Only connection-refused means already stopped. A timeout, old shutdown `404`, missing confirmation, or live listener is a real blocker; diagnose the selected local service, never use broad `pkill`.
+- Require valid local `memory_pressure -Q` before/after the TTS gate and at least 40% free pressure for one worker, plus 10 percentage points per extra active worker; require 20 GiB scratch per outer job on both temp/output volumes. These gates apply equally with remote TTS. GPU inference speed does not justify increasing local render concurrency.
 - Default to one outer job and one inner render worker. If the user asks for parallel chunks and gates pass, start with two outer jobs using the existing renderer options; do not launch parallel 4K still/render processes ad hoc.
 - Keep Remotion's 30fps preview fallback. Final and fixed-tool stills explicitly use `renderFps: 60`; composition IDs replace unsupported project characters such as underscores with hyphens.
 

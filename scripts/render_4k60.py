@@ -5,6 +5,7 @@ The renderer deliberately keeps orchestration outside Remotion:
 
 * one repository-wide render lock;
 * the selected local TTS backend is health-checked and gracefully stopped;
+  remote TTS is left running and is not contacted during rendering;
 * macOS memory pressure and scratch space are checked before rendering;
 * a minimal public directory is bundled exactly once per invocation;
 * bounded chunks may run in a controlled outer worker pool;
@@ -12,9 +13,8 @@ The renderer deliberately keeps orchestration outside Remotion:
 * final PCM is rebuilt with an exact sample count, while the muxed AAC track is
   validated to within one millisecond and fully decoded.
 
-This module uses only the Python standard library for rendering orchestration.
-The TTS gate imports the repository-local ``my_tts`` client so the shutdown
-protocol stays in one place.
+TTS defaults use the repository's environment configuration. The local TTS gate
+imports the ``my_tts`` client so the shutdown protocol stays in one place.
 """
 
 from __future__ import annotations
@@ -43,6 +43,11 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Sequence
 from urllib.parse import urlsplit
 
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from my_tts.config import get_tts_settings
+
 
 RENDERER_VERSION = 2
 DEFAULT_LOCK_DIR = Path("/private/tmp/umamusume-anime-4k-render.lock")
@@ -69,6 +74,7 @@ class RenderConfig:
     output_path: Path
     tts_engine: str
     tts_url: str
+    tts_location: str = "auto"
     jobs: int = 1
     render_concurrency: int = 1
     frame_reuse: bool = True
@@ -208,19 +214,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--tts-engine",
         choices=("fishspeech", "qwen3tts"),
-        default=os.environ.get("TTS_ENGINE"),
-        help="Backend used for synthesis; may also be provided through TTS_ENGINE.",
+        default=os.environ.get("TTS_ENGINE") or get_tts_settings().provider,
+        help="Backend used for synthesis (default: TTS_PROVIDER; legacy TTS_ENGINE also supported).",
     )
     parser.add_argument(
         "--tts-url",
         default=os.environ.get("TTS_URL"),
-        help="Loopback URL used for synthesis; may also be provided through TTS_URL.",
+        help="Service URL (default: matching TTS_API_BASE_URL; legacy TTS_URL also supported).",
+    )
+    parser.add_argument(
+        "--tts-location", choices=("auto", "local", "remote"),
+        help="Default: TTS_LOCATION or auto (loopback=local). Use remote for an SSH tunnel to a GPU server.",
     )
     parser.add_argument(
         "--jobs",
         type=positive_int,
         default=1,
-        help=f"Concurrent chunk processes after TTS shutdown (default 1, maximum {MAX_OUTER_JOBS}).",
+        help=f"Concurrent chunk processes after resource checks (default 1, maximum {MAX_OUTER_JOBS}).",
     )
     parser.add_argument(
         "--render-concurrency",
@@ -252,10 +262,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def config_from_args(args: argparse.Namespace, *, repo_root: Path | None = None) -> RenderConfig:
-    if not args.tts_engine:
-        raise RenderError("--tts-engine is required (or set TTS_ENGINE)")
-    if not args.tts_url:
-        raise RenderError("--tts-url is required (or set TTS_URL)")
+    settings = get_tts_settings()
+    if args.tts_engine not in ("fishspeech", "qwen3tts"):
+        raise RenderError("Select fishspeech or qwen3tts through --tts-engine or TTS_PROVIDER")
 
     root = (repo_root or Path(__file__).resolve().parents[1]).resolve()
     output_slug = args.output_slug or derive_output_slug(args.project)
@@ -274,7 +283,8 @@ def config_from_args(args: argparse.Namespace, *, repo_root: Path | None = None)
         output_slug=output_slug,
         output_path=output_path.resolve(),
         tts_engine=args.tts_engine,
-        tts_url=args.tts_url,
+        tts_url=args.tts_url or settings.url(args.tts_engine),
+        tts_location=args.tts_location or settings.location(args.tts_engine),
         jobs=args.jobs,
         render_concurrency=args.render_concurrency,
         chunk_frames=args.chunk_frames,
@@ -324,7 +334,9 @@ def validate_config(config: RenderConfig) -> None:
         raise RenderError(f"Remotion composition ids cannot contain underscores: {config.composition}")
     if not re.fullmatch(r"[a-zA-Z0-9\u4e00-\u9fff-]+", config.composition):
         raise RenderError(f"unsupported character in Remotion composition id: {config.composition!r}")
-    parse_loopback_endpoint(config.tts_url)
+    if config.tts_engine not in ("fishspeech", "qwen3tts"):
+        raise RenderError("TTS backend must be fishspeech or qwen3tts")
+    resolve_tts_location(config.tts_url, config.tts_location)
 
 
 def _register_process(process: subprocess.Popen[str]) -> None:
@@ -590,15 +602,29 @@ def get_memory_free_percent() -> int:
     return value
 
 
-def parse_loopback_endpoint(url: str) -> tuple[str, int]:
+def parse_tts_endpoint(url: str) -> tuple[str, int]:
     try:
         parsed = urlsplit(url)
         host = parsed.hostname
         port = parsed.port
     except ValueError as exc:
-        raise RenderError(f"invalid TTS URL: {url}") from exc
+        raise RenderError("invalid TTS URL") from exc
     if parsed.scheme not in {"http", "https"} or not host:
-        raise RenderError(f"TTS URL must be an HTTP(S) loopback URL: {url}")
+        raise RenderError("TTS URL must be an HTTP(S) service URL")
+    if parsed.username is not None or parsed.password is not None or parsed.query or parsed.fragment:
+        raise RenderError("TTS URL must not contain credentials, query parameters or a fragment; use TTS_API_KEY")
+    if port == 0:
+        raise RenderError("TTS URL port must be greater than zero")
+    try:
+        address = ipaddress.ip_address(host.split("%", 1)[0])
+    except ValueError:
+        address = None
+    if address is not None and address.is_unspecified:
+        raise RenderError("TTS URL must be a service destination, not a wildcard bind address")
+    return host, port or (443 if parsed.scheme == "https" else 80)
+
+
+def is_loopback_host(host: str) -> bool:
     normalized_host = host.rstrip(".").casefold()
     is_loopback = normalized_host == "localhost"
     if not is_loopback:
@@ -610,9 +636,25 @@ def parse_loopback_endpoint(url: str) -> tuple[str, int]:
             is_loopback = address.is_loopback
             mapped = getattr(address, "ipv4_mapped", None)
             is_loopback = is_loopback or bool(mapped and mapped.is_loopback)
-    if not is_loopback:
-        raise RenderError(f"TTS URL must be an explicit loopback URL: {url}")
-    return host, port or (443 if parsed.scheme == "https" else 80)
+    return is_loopback
+
+
+def parse_loopback_endpoint(url: str) -> tuple[str, int]:
+    host, port = parse_tts_endpoint(url)
+    if not is_loopback_host(host):
+        raise RenderError("Local TTS shutdown requires an explicit loopback URL")
+    return host, port
+
+
+def resolve_tts_location(url: str, location: str = "auto") -> str:
+    host, _ = parse_tts_endpoint(url)
+    if location not in ("auto", "local", "remote"):
+        raise RenderError("TTS location must be auto, local or remote")
+    if location == "local":
+        parse_loopback_endpoint(url)
+    if location == "auto":
+        return "local" if is_loopback_host(host) else "remote"
+    return location
 
 
 def confirm_listener_stopped(port: int) -> None:
@@ -638,7 +680,11 @@ def stop_selected_tts(
     client_factory: Callable[[str, str, float], Any] | None = None,
     listener_checker: Callable[[int], None] = confirm_listener_stopped,
 ) -> None:
-    """Health-check and gracefully stop only the backend selected for this run."""
+    """Stop a selected local service; never contact a remote service for rendering."""
+
+    if resolve_tts_location(config.tts_url, config.tts_location) == "remote":
+        print(f"TTS shutdown gate: backend={config.tts_engine} location=remote state=left-running (no request)")
+        return
 
     try:
         import httpx
@@ -1683,12 +1729,12 @@ def render_pipeline(config: RenderConfig) -> None:
         )
 
         before = get_memory_free_percent()
-        print(f"memory before TTS shutdown: free={before}%")
+        print(f"memory before TTS gate: free={before}%")
         stop_selected_tts(config)
         after = get_memory_free_percent()
         required = config.required_memory_free_percent
         print(
-            f"memory after TTS shutdown: free={after}% required={required}% "
+            f"memory after TTS gate: free={after}% required={required}% "
             f"outer_jobs={config.jobs} inner_concurrency={config.render_concurrency}"
         )
         if after < required:

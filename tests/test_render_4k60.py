@@ -486,6 +486,74 @@ def test_selected_tts_is_health_checked_shutdown_and_listener_confirmed(tmp_path
     ]
 
 
+@pytest.mark.parametrize("engine", ["fishspeech", "qwen3tts"])
+@pytest.mark.parametrize("url,location", [
+    ("https://gpu.example.invalid/fishspeech", "auto"),
+    ("http://192.0.2.10:8002", "remote"),
+    ("http://127.0.0.1:8002", "remote"),  # Tunnel to a remote GPU.
+])
+def test_remote_tts_is_not_contacted_or_stopped(tmp_path, engine, url, location):
+    config = replace(make_config(tmp_path), tts_engine=engine, tts_url=url, tts_location=location)
+    renderer.validate_config(config)
+    renderer.stop_selected_tts(config,
+        client_factory=lambda *_: pytest.fail("Remote TTS must not be contacted"),
+        listener_checker=lambda *_: pytest.fail("Remote TTS has no local listener to stop"))
+
+
+@pytest.mark.parametrize("url", ["http://127.0.0.1:8002", "http://LOCALHOST.:8002",
+                                  "https://[::1]", "http://[::ffff:127.0.0.1]:8002"])
+def test_auto_keeps_loopback_shutdown_policy(url):
+    assert renderer.resolve_tts_location(url) == "local"
+
+
+@pytest.mark.parametrize("url", ["file:///tmp/tts", "http://", "http://gpu.invalid:bad",
+    "http://gpu.invalid:0", "http://gpu.invalid:70000", "http://0.0.0.0:8002", "http://[::]:8002",
+    "http://user:password@gpu.invalid", "http://gpu.invalid?key=value", "http://gpu.invalid#fragment"])
+def test_invalid_remote_endpoint_is_not_a_shutdown_bypass(tmp_path, url):
+    with pytest.raises(renderer.RenderError):
+        renderer.validate_config(replace(make_config(tmp_path), tts_url=url, tts_location="remote"))
+
+
+def test_local_policy_cannot_shutdown_a_remote_address(tmp_path):
+    config = replace(make_config(tmp_path), tts_url="https://gpu.example.invalid", tts_location="local")
+    with pytest.raises(renderer.RenderError, match="explicit loopback"):
+        renderer.stop_selected_tts(config, client_factory=lambda *_: pytest.fail("Must not contact TTS"))
+
+
+def test_renderer_environment_defaults_and_explicit_overrides(monkeypatch, tmp_path):
+    from my_tts import config as tts_config
+    tts_config.ENV_FILE.write_text("TTS_PROVIDER=fishspeech\nTTS_API_BASE_URL=http://gpu.example.invalid:8002\nTTS_LOCATION=remote\n")
+    args = renderer.build_parser().parse_args(["--project", "Example"])
+    config = renderer.config_from_args(args, repo_root=tmp_path)
+    assert config.tts_url == "http://gpu.example.invalid:8002"
+    assert config.tts_engine == "fishspeech"
+    assert config.tts_location == "remote"
+    args = renderer.build_parser().parse_args(["--project", "Example", "--tts-engine", "qwen3tts",
+        "--tts-url", "http://127.0.0.1:8001", "--tts-location", "local"])
+    config = renderer.config_from_args(args, repo_root=tmp_path)
+    assert (config.tts_engine, config.tts_url, config.tts_location) == ("qwen3tts", "http://127.0.0.1:8001", "local")
+    monkeypatch.setenv("TTS_ENGINE", "qwen3tts")
+    monkeypatch.setenv("TTS_URL", "http://127.0.0.1:8001")
+    args = renderer.build_parser().parse_args(["--project", "Example"])
+    config = renderer.config_from_args(args, repo_root=tmp_path)
+    assert config.tts_engine == "qwen3tts"
+    assert config.tts_url == "http://127.0.0.1:8001"
+    assert renderer.resolve_tts_location(config.tts_url, config.tts_location) == "local"
+
+
+@pytest.mark.parametrize("gate", ["memory", "scratch"])
+def test_remote_tts_still_requires_local_render_resources(tmp_path, monkeypatch, gate):
+    config = replace(make_config(tmp_path), tts_url="https://gpu.example.invalid")
+    write_shared_image_timeline(config)
+    monkeypatch.setattr(renderer, "validate_required_tools", lambda: None)
+    readings = iter((75, 39 if gate == "memory" else 75))
+    monkeypatch.setattr(renderer, "get_memory_free_percent", lambda: next(readings))
+    monkeypatch.setattr(renderer.shutil, "disk_usage", lambda _: SimpleNamespace(free=0))
+    monkeypatch.setattr(renderer, "build_render_signature", lambda *_: pytest.fail("Render must be blocked"))
+    with pytest.raises(renderer.RenderError, match="memory pressure" if gate == "memory" else "scratch"):
+        renderer.render_pipeline(config)
+
+
 def test_connection_refused_is_treated_as_already_stopped(tmp_path: Path) -> None:
     config = make_config(tmp_path)
     events: list[object] = []
